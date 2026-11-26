@@ -110,6 +110,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .sign-in label { display: grid; gap: 4px; }
 #sign-out { margin-bottom: 10px; }
 .data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.invite-link { display: grid; gap: 8px; margin-top: 12px; }
+#invite-status { margin-top: 8px; }
 
 /* Pick screen */
 .pick {
@@ -238,10 +240,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   </div>
 
   <form id="sign-in" class="card sign-in" hidden>
-    <h2>Sign in to Thalamos 4</h2>
+    <h2 id="sign-in-heading">Sign in to Thalamos 4</h2>
+    <p id="join-hint" class="hint" hidden>Choose an email and password to join the household.</p>
     <label>Email <input id="sign-in-email" type="email" autocomplete="username" required></label>
     <label>Password <input id="sign-in-password" type="password" autocomplete="current-password" required></label>
     <button id="sign-in-btn" class="btn btn-primary" type="submit">Sign in</button>
+    <button id="existing-account-btn" class="btn" type="submit" hidden>Sign in with an existing account</button>
     <p id="sign-in-error" class="form-err" role="alert"></p>
   </form>
   <button id="sign-out" class="btn btn-quiet" type="button" hidden>Sign out</button>
@@ -310,6 +314,18 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       <ul id="people-list" class="people"></ul>
       <div id="moved"></div>
     </div>
+    <div id="invite-actions" class="card" hidden>
+      <div class="sec-head">
+        <h2>Invite someone</h2>
+        <button id="create-invite" class="btn" type="button">Create link</button>
+      </div>
+      <div id="invite-link" class="invite-link" hidden>
+        <input id="invite-url" type="text" aria-label="Invitation link" readonly>
+        <div class="row-acts"><button id="copy-invite" class="btn" type="button">Copy link</button></div>
+        <p class="hint">One person can use this link within 7 days.</p>
+      </div>
+      <p id="invite-status" class="hint" role="status" hidden></p>
+    </div>
   </section>
 
   <section id="view-log" class="view" aria-label="Log" hidden>
@@ -356,6 +372,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var LS_KEY = 'thalamos4-chores-v1';
   var LOG_PAGE = 15;
   var VIEWS = ['pick', 'house', 'log'];
+  var NO_HOUSE_ACCESS = 'This account does not have access to the shared house.';
+  var INVALID_INVITATION = 'This invitation is invalid, expired, or already used.';
+  var INVITE_TOKEN = /^[0-9a-f]{32}$/;
   var SUPABASE_URL = 'https://qfwkwoamkjgwxhmjrkyw.supabase.co';
   var SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_MLq3YZx8arJPdfjwomjbTg_Xqs1ZL61';
 
@@ -363,6 +382,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     view: 'pick',
     mode: 'loading',      // loading | shared | local | signed-out | unavailable
     cloud: false, accountId: null,
+    inviteToken: '',
     gotPeople: false, gotLogs: false,
     stale: false, readOnly: false, notice: '',
     people: [], logs: [],
@@ -687,7 +707,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       }
       S.mode = 'shared';
       S.stale = false;
-      if (S.notice === 'This account does not have access to the shared house.') S.notice = '';
+      if (S.notice === NO_HOUSE_ACCESS) S.notice = '';
       render();
     }
 
@@ -705,7 +725,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.logs = [];
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
-          S.notice = 'This account does not have access to the shared house.';
+          if (!S.notice) S.notice = NO_HOUSE_ACCESS;
           render();
           return;
         }
@@ -761,8 +781,78 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     };
   }
 
+  function setInviteStatus(message) {
+    var status = $('invite-status');
+    status.textContent = message;
+    status.hidden = !message;
+  }
+
+  async function createInvite() {
+    var button = $('create-invite');
+    if (!S.cloud || !canWrite() || button.disabled) return;
+    var source = backend;
+    button.disabled = true;
+    setInviteStatus('Creating link…');
+    try {
+      var result = await cloudClient.rpc('thalamos_create_invite');
+      if (result.error) throw result.error;
+      if (backend !== source) return;
+      if (typeof result.data !== 'string' || !INVITE_TOKEN.test(result.data)) throw new Error('Invalid invitation response');
+      var link = new URL(location.pathname, location.origin);
+      link.searchParams.set('join', '1');
+      link.hash = 'invite=' + result.data;
+      $('invite-url').value = link.href;
+      $('invite-link').hidden = false;
+      setInviteStatus('');
+    } catch (error) {
+      if (backend !== source) return;
+      setInviteStatus(['PGRST202', '42883'].includes(error.code)
+        ? 'Invite links still need to be set up in Supabase.'
+        : 'Could not create an invite. Try again.');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function copyInvite() {
+    var input = $('invite-url');
+    try {
+      await navigator.clipboard.writeText(input.value);
+      setInviteStatus('Link copied. Paste it into a message to the person you’re inviting.');
+    } catch (error) {
+      input.focus();
+      input.select();
+      setInviteStatus('Select and copy the link above.');
+    }
+  }
+
+  async function redeemInvite(id) {
+    if (!S.inviteToken) return;
+    try {
+      var result = await cloudClient.rpc('thalamos_redeem_invite', { p_token: S.inviteToken });
+      if (result.error) throw result.error;
+      if (S.accountId !== id) return;
+      if (result.data === 'invalid') {
+        S.notice = INVALID_INVITATION;
+        return;
+      }
+      if (result.data !== 'joined' && result.data !== 'member') throw new Error('Invalid invitation response');
+      S.inviteToken = '';
+      var link = new URL(location.href);
+      link.searchParams.delete('join');
+      link.hash = 'house';
+      history.replaceState(history.state, '', link.href);
+      showView('house');
+      if (result.data === 'joined') S.notice = 'You’ve joined Thalamos 4.';
+    } catch (error) {
+      if (S.accountId === id) S.notice = 'Could not accept this invitation. Reload to try again.';
+    }
+  }
+
   async function startCloud() {
     S.cloud = true;
+    var invitation = /^#invite=([0-9a-f]{32})$/.exec(location.hash);
+    S.inviteToken = invitation ? invitation[1] : '';
     render();
     try {
       if (new URL(SUPABASE_URL).protocol !== 'https:' || !SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) {
@@ -780,7 +870,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       cloudClient.auth.onAuthStateChange(function (event, session) {
         var id = session ? session.user.id : null;
         // Leave the auth callback before starting requests that use the session.
-        setTimeout(function () {
+        setTimeout(async function () {
           if (S.accountId === id && (id || S.mode === 'signed-out')) return;
           if (stopWatching) { stopWatching(); stopWatching = null; }
           backend = null;
@@ -792,11 +882,17 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
           S.notice = '';
+          $('invite-url').value = '';
+          $('invite-link').hidden = true;
+          setInviteStatus('');
           S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
           $('new-name').value = '';
           setPeopleErr('');
           render();
-          if (id) stopWatching = watchCloudHouse(cloudClient);
+          if (id) {
+            await redeemInvite(id);
+            if (S.accountId === id) stopWatching = watchCloudHouse(cloudClient);
+          }
         }, 0);
       });
     } catch (error) {
@@ -806,20 +902,41 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
-  async function signIn() {
+  async function signIn(createAccount) {
     var button = $('sign-in-btn');
+    var existingButton = $('existing-account-btn');
     if (!cloudClient || button.disabled) return;
-    button.disabled = true;
+    button.disabled = existingButton.disabled = true;
     $('sign-in-error').textContent = '';
     var password = $('sign-in-password');
     try {
-      var result = await cloudClient.auth.signInWithPassword({ email: $('sign-in-email').value.trim(), password: password.value });
+      var credentials = { email: $('sign-in-email').value.trim(), password: password.value };
+      var result;
+      if (createAccount) {
+        // The Auth hook gets a hash for validating signup. Only the link holds the token used to join.
+        var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(S.inviteToken));
+        var hash = Array.from(new Uint8Array(digest), function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+        credentials.options = { data: { thalamos_invite_hash: hash } };
+        result = await cloudClient.auth.signUp(credentials);
+      } else {
+        result = await cloudClient.auth.signInWithPassword(credentials);
+      }
       if (result.error) throw result.error;
       password.value = '';
+      if (createAccount && !result.data.session) {
+        $('sign-in-error').textContent = 'Check your email to confirm your account, then use this invitation to sign in.';
+      }
     } catch (error) {
-      $('sign-in-error').textContent = error.code === 'invalid_credentials' ? 'Check your email and password.' : 'Could not sign in. Try again.';
+      var message = createAccount ? 'Could not create an account. Try again.' : 'Could not sign in. Try again.';
+      if (error.message === INVALID_INVITATION) message = INVALID_INVITATION;
+      else if (['user_already_exists', 'email_exists'].includes(error.code)) message = 'This email already has an account. Use “Sign in with an existing account”.';
+      else if (error.code === 'weak_password') message = 'Choose a stronger password.';
+      else if (error.code === 'invalid_credentials') message = 'Check your email and password.';
+      else if (error.code === 'email_not_confirmed') message = 'Confirm your email, then try again.';
+      else if (error.code === 'signup_disabled') message = 'Ask a housemate to enable invite sign-ups in Supabase.';
+      $('sign-in-error').textContent = message;
     } finally {
-      button.disabled = false;
+      button.disabled = existingButton.disabled = false;
     }
   }
 
@@ -913,7 +1030,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('tabs').hidden = locked;
     $('view-' + S.view).hidden = locked;
     $('sign-in').hidden = S.mode !== 'signed-out';
+    var joining = !!S.inviteToken;
+    $('sign-in-heading').textContent = joining ? 'Join Thalamos 4' : 'Sign in to Thalamos 4';
+    $('sign-in-btn').textContent = joining ? 'Create account' : 'Sign in';
+    $('sign-in-password').autocomplete = joining ? 'new-password' : 'current-password';
+    $('join-hint').hidden = !joining;
+    $('existing-account-btn').hidden = !joining;
     $('sign-out').hidden = !S.accountId;
+    $('invite-actions').hidden = !S.cloud || !canWrite();
     $('data-actions').hidden = !ready() || S.stale;
     $('import-backup').hidden = !S.cloud || !canWrite();
   }
@@ -1333,7 +1457,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     document.addEventListener('submit', function (e) {
       var f = e.target;
       if (f.id === 'add-person') { e.preventDefault(); addPerson(); }
-      else if (f.id === 'sign-in') { e.preventDefault(); signIn(); }
+      else if (f.id === 'sign-in') {
+        e.preventDefault();
+        signIn(!!S.inviteToken && e.submitter !== $('existing-account-btn'));
+      }
       else if (f.id === 'log-form') { e.preventDefault(); saveLog(); }
       else if (f.classList.contains('person-form')) { e.preventDefault(); savePersonName(f.getAttribute('data-id')); }
     });
@@ -1356,6 +1483,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('notice-close').addEventListener('click', function () { S.notice = ''; if (!S.cloud) S.stale = false; render(); });
     $('new-name').addEventListener('input', function () { setPeopleErr(''); });
     $('sign-out').addEventListener('click', signOut);
+    $('create-invite').addEventListener('click', createInvite);
+    $('copy-invite').addEventListener('click', copyInvite);
     $('download-backup').addEventListener('click', downloadBackup);
     $('import-backup').addEventListener('click', function () { $('backup-file').click(); });
     $('backup-file').addEventListener('change', importBackup);
