@@ -1,0 +1,1400 @@
+<meta charset="utf-8">
+<title>Thalamos 4 Chores</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Commissioner:wght@500;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a phone app. One narrow column, one screen at a time (Pick, Housemates, Log), tab bar under the thumb. One motif: bathroom tile grout. */
+:root {
+  --bg: #EDF2F2;
+  --surface: #FFFFFF;
+  --sunk: #F4F8F8;
+  --ink: #11262A;
+  --muted: #586C70;
+  --line: #D2DDDE;
+  --grout: rgba(17, 38, 42, .055);
+  --thumb: #FFFFFF;
+  --bath: #0B7472;
+  --bath-soft: #D6EEEC;
+  --room: #8A5B00;
+  --room-soft: #F6EACB;
+  --danger: #B42318;
+  --focus: #0B7472;
+  --f-display: "Commissioner", "Inter", system-ui, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --tabbar-h: 64px;
+  --col: 560px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0C1618; --surface: #132124; --sunk: #0F1C1F; --ink: #E1EBEB; --muted: #93A8AB;
+    --line: #243739; --grout: rgba(225, 235, 235, .045); --thumb: #E1EBEB;
+    --bath: #4CC3BC; --bath-soft: #123A3A; --room: #E4B54A; --room-soft: #3A2E10;
+    --danger: #F7826F; --focus: #4CC3BC; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0C1618; --surface: #132124; --sunk: #0F1C1F; --ink: #E1EBEB; --muted: #93A8AB;
+  --line: #243739; --grout: rgba(225, 235, 235, .045); --thumb: #E1EBEB;
+  --bath: #4CC3BC; --bath-soft: #123A3A; --room: #E4B54A; --room-soft: #3A2E10;
+  --danger: #F7826F; --focus: #4CC3BC; color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--f-body); -webkit-font-smoothing: antialiased; }
+button, label, summary, .tab { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.top, .wrap {
+  max-width: var(--col); margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { padding-block: 4px calc(var(--tabbar-h) + 32px); }
+h1, h2 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+h1 { font-weight: 800; font-size: 1.4rem; line-height: 1.1; letter-spacing: -.01em; }
+h2 { font-weight: 700; font-size: 1.12rem; line-height: 1.2; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--muted); }
+.small { font-size: .82rem; }
+.eyebrow { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.hint { margin: 0; color: var(--muted); font-size: .88rem; }
+.empty { margin: 0; padding: 14px 0 4px; color: var(--muted); list-style: none; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+
+/* Header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-block: 16px 12px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark { width: 32px; height: 32px; flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.mark i { border-radius: 3px; background: var(--line); }
+.mark i:nth-child(1), .mark i:nth-child(2) { background: var(--bath); }
+.mark i:nth-child(3) { background: var(--room); }
+.sync { display: inline-flex; align-items: center; gap: 7px; font-size: .78rem; font-weight: 500; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.sync.ok { color: var(--bath); }
+.sync.warn { color: var(--room); }
+.sync.bad { color: var(--danger); }
+
+.notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px 10px 14px; margin-bottom: 14px; border-radius: 12px; background: var(--room-soft); border: 1px solid var(--line); font-size: .9rem; }
+
+/* Screens */
+.view { display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; min-width: 0; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* Buttons and fields */
+.btn { font: inherit; font-weight: 600; font-size: .95rem; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 8px 16px; min-height: 44px; cursor: pointer; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn-quiet { background: transparent; border-color: transparent; color: var(--muted); padding: 8px 10px; }
+.btn-danger { color: var(--danger); }
+.btn-danger.armed { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+@media (hover: hover) {
+  .btn:hover:not(:disabled) { border-color: var(--muted); }
+  .btn-primary:hover:not(:disabled) { border-color: var(--ink); opacity: .9; }
+  .btn-quiet:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
+}
+.btn:active:not(:disabled) { transform: scale(.98); }
+.btn:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* 16px keeps iPhones from zooming in when a field is tapped */
+input[type="text"], input[type="date"], input[type="email"], input[type="password"], select {
+  font: inherit; font-size: 16px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; min-height: 46px; width: 100%; min-width: 0;
+}
+input[type="date"] { -webkit-appearance: none; appearance: none; }
+.form-err { margin: 0; color: var(--danger); font-size: .88rem; }
+.form-err:empty { display: none; }
+.sign-in { display: grid; gap: 10px; }
+.sign-in label { display: grid; gap: 4px; }
+#sign-out { margin-bottom: 10px; }
+.data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+/* Pick screen */
+.pick {
+  background-color: var(--surface);
+  background-image: linear-gradient(var(--grout) 1px, transparent 1px), linear-gradient(90deg, var(--grout) 1px, transparent 1px);
+  background-size: 24px 24px; background-position: -1px -1px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.pick-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.jobs { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; }
+@media (max-width: 350px) { .jobs { grid-template-columns: minmax(0, 1fr); } }
+.job { border-radius: 12px; padding: 12px 14px 14px; background: var(--bath-soft); min-width: 0; }
+.job.room { background: var(--room-soft); }
+.job-label { display: flex; align-items: center; gap: 6px; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--bath); }
+.job.room .job-label { color: var(--room); }
+.names { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; min-height: 2rem; }
+.name-big { font-family: var(--f-display); font-weight: 800; font-size: 1.3rem; line-height: 1.2; overflow-wrap: break-word; }
+.name-big.empty { font-weight: 500; font-size: 1rem; color: var(--muted); }
+.name-big.rolling { opacity: .5; }
+.name-big.landed { animation: land .24s ease-out; }
+@keyframes land { from { transform: translateY(-5px) scale(1.06); } to { transform: none; } }
+.pick-status { display: flex; align-items: center; gap: 4px; font-size: .9rem; color: var(--bath); font-weight: 600; }
+.pick-status:empty { display: none; }
+.btn-big { font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; min-height: 56px; width: 100%; border-radius: 14px; }
+
+.home-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.home-list li { border-bottom: 1px solid var(--line); }
+.home-list li:last-child { border-bottom: 0; }
+.home-row { display: grid; grid-template-columns: 2.6rem minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px 0; cursor: pointer; }
+.home-row.is-away .h-name { color: var(--muted); }
+.h-name { font-weight: 600; overflow-wrap: break-word; }
+.odds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 5px; }
+.odd { display: grid; grid-template-columns: 2.3rem minmax(0, 1fr) 2.3rem; align-items: center; gap: 6px; font: 500 .74rem/1 var(--f-mono); }
+.odd .k { font-family: var(--f-body); font-weight: 700; font-size: .7rem; }
+.odd.bath .k { color: var(--bath); }
+.odd.room .k { color: var(--room); }
+.bar { height: 6px; border-radius: 3px; background: var(--sunk); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 3px; transition: width .3s ease; }
+.odd.bath .bar i { background: var(--bath); }
+.odd.room .bar i { background: var(--room); }
+.pct { text-align: right; font-variant-numeric: tabular-nums; }
+.switch { position: relative; display: inline-flex; width: 40px; height: 24px; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch .track { width: 40px; height: 24px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--thumb); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .15s; }
+.switch input:checked + .track { background: var(--bath); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.how { font-size: .9rem; }
+.how summary { cursor: pointer; color: var(--muted); font-weight: 600; min-height: 28px; }
+.how ul { margin: 10px 0 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 6px; }
+
+/* Housemates screen */
+.add-row { display: flex; gap: 8px; margin-top: 12px; }
+.add-row input { flex: 1; }
+#people-err { margin-top: 6px; }
+.people { list-style: none; margin: 6px 0 0; padding: 0; }
+.person { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.person:last-child { border-bottom: 0; }
+.p-main { min-width: 0; }
+.p-name { font-weight: 600; overflow-wrap: break-word; }
+.p-meta { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.person.editing { display: block; }
+.person-form { display: flex; flex-direction: column; gap: 10px; }
+.row-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.moved { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.moved summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: .9rem; }
+
+/* Log screen */
+.log { list-style: none; margin: 4px 0 0; padding: 0; }
+.entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "date acts" "bath bath" "room room" "note note"; gap: 6px 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.entry:last-child { border-bottom: 0; }
+.e-date { grid-area: date; font: 500 .86rem/1.3 var(--f-mono); font-variant-numeric: tabular-nums; }
+.e-date small { display: block; font: 400 .74rem/1.3 var(--f-body); color: var(--muted); }
+.e-acts { grid-area: acts; display: flex; gap: 2px; }
+.e-bath { grid-area: bath; } .e-room { grid-area: room; } .e-note { grid-area: note; }
+.e-bath, .e-room { display: flex; align-items: center; gap: 8px; }
+.lbl { flex: none; width: 5.4rem; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.chip { display: inline-block; padding: 3px 11px; border-radius: 999px; font-weight: 600; font-size: .88rem; max-width: 100%; overflow-wrap: break-word; }
+.chip.bath { background: var(--bath-soft); color: var(--bath); }
+.chip.room { background: var(--room-soft); color: var(--room); }
+.chip.gone { font-style: italic; }
+.e-note { color: var(--muted); font-size: .88rem; overflow-wrap: break-word; min-width: 0; }
+.e-note:empty { display: none; }
+.more { margin-top: 6px; }
+.entry.editing { display: block; border-bottom: 0; }
+.log-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: end; padding: 14px; background: var(--sunk); border: 1px solid var(--line); border-radius: 14px; }
+.f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.f label { font-size: .78rem; font-weight: 600; color: var(--muted); }
+.f-wide, .f-acts, .log-form .form-err { grid-column: 1 / -1; }
+.f-acts { display: flex; gap: 8px; }
+.f-acts .btn { flex: 1; }
+.new-entry { margin-top: 12px; }
+
+/* Tab bar */
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.tabs-inner { max-width: calc(var(--col) - 32px); margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); height: var(--tabbar-h); }
+.tab { position: relative; appearance: none; background: none; border: 0; margin: 0; padding: 0; cursor: pointer; color: var(--muted); font: 600 .74rem/1.2 var(--f-body); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.tab svg { width: 22px; height: 22px; }
+.tab[aria-current="page"] { color: var(--ink); }
+.tab[aria-current="page"]::before { content: ""; position: absolute; top: -1px; left: 32%; right: 32%; height: 3px; border-radius: 0 0 3px 3px; background: var(--bath); }
+.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -6px; border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <h1>Thalamos 4</h1>
+  </div>
+  <span id="sync" class="sync" role="status">Connecting…</span>
+</header>
+
+<main class="wrap">
+  <div id="notice" class="notice" role="alert" hidden>
+    <span id="notice-text"></span>
+    <button id="notice-close" class="btn btn-quiet" type="button">Dismiss</button>
+  </div>
+
+  <form id="sign-in" class="card sign-in" hidden>
+    <h2>Sign in to Thalamos 4</h2>
+    <label>Email <input id="sign-in-email" type="email" autocomplete="username" required></label>
+    <label>Password <input id="sign-in-password" type="password" autocomplete="current-password" required></label>
+    <button id="sign-in-btn" class="btn btn-primary" type="submit">Sign in</button>
+    <p id="sign-in-error" class="form-err" role="alert"></p>
+  </form>
+  <button id="sign-out" class="btn btn-quiet" type="button" hidden>Sign out</button>
+
+  <section id="view-pick" class="view" aria-label="Pick">
+    <div class="card pick">
+      <div class="pick-head">
+        <h2>Current turn</h2>
+        <span id="pick-when" class="eyebrow"></span>
+      </div>
+      <div class="jobs">
+        <div class="job bath">
+          <div class="job-label">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 1.5S3 7.2 3 10.2a5 5 0 0 0 10 0C13 7.2 8 1.5 8 1.5z" fill="currentColor"/></svg>
+            Bathroom
+          </div>
+          <div id="bath-names" class="names"></div>
+        </div>
+        <div class="job room">
+          <div class="job-label">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2 7.4 8 2.2l6 5.2V14H2z" fill="currentColor"/></svg>
+            Room
+          </div>
+          <div id="room-names" class="names"></div>
+        </div>
+      </div>
+      <div id="pick-status" class="pick-status" aria-live="polite"></div>
+      <button id="pick-btn" class="btn btn-primary btn-big" type="button" disabled>Pick cleaners</button>
+      <p id="pick-hint" class="hint"></p>
+    </div>
+
+    <div class="card">
+      <div class="sec-head">
+        <h2>Who's home</h2>
+        <span class="eyebrow">Chance next pick</span>
+      </div>
+      <p class="hint">Switch someone off if they're away. They sit out the next pick.</p>
+      <ul id="home-list" class="home-list"></ul>
+    </div>
+
+    <details class="card how">
+      <summary>How the picker chooses</summary>
+      <ul>
+        <li>Each job keeps its own count. The fewer times you have cleaned the bathroom, the bigger your chance of getting the bathroom. The same goes for the room.</li>
+        <li>For every time you are ahead of whoever has done a job least, your chance of that job drops to less than half.</li>
+        <li>If you did a job last time, you are much less likely to get it again. Anyone who cleaned last time also gets a smaller break on the other job.</li>
+        <li>It is still a random draw. The bars under each name show their real chances for the next pick.</li>
+        <li>New housemates, and anyone who moves back in, start at the house average, so they don't get every job for weeks.</li>
+        <li>Editing or deleting a log entry updates everyone's chances straight away.</li>
+      </ul>
+    </details>
+  </section>
+
+  <section id="view-house" class="view" aria-label="Housemates" hidden>
+    <div class="card">
+      <div class="sec-head">
+        <h2>Housemates</h2>
+        <span id="people-count" class="eyebrow"></span>
+      </div>
+      <form id="add-person" class="add-row" autocomplete="off">
+        <label class="sr" for="new-name">Housemate's name</label>
+        <input id="new-name" type="text" maxlength="40" placeholder="Add a name" enterkeyhint="done" autocapitalize="words" disabled>
+        <button id="add-person-btn" class="btn btn-primary" type="submit" disabled>Add</button>
+      </form>
+      <p id="people-err" class="form-err" role="alert"></p>
+      <ul id="people-list" class="people"></ul>
+      <div id="moved"></div>
+    </div>
+  </section>
+
+  <section id="view-log" class="view" aria-label="Log" hidden>
+    <div class="card">
+      <div class="sec-head">
+        <h2>Log</h2>
+        <button id="add-log-btn" class="btn" type="button" hidden>Add past entry</button>
+      </div>
+      <div id="log-area"></div>
+      <div id="data-actions" class="data-actions" hidden>
+        <button id="download-backup" class="btn" type="button">Download backup</button>
+        <button id="import-backup" class="btn" type="button" hidden>Import backup</button>
+        <input id="backup-file" type="file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav id="tabs" class="tabs" aria-label="Screens">
+  <div class="tabs-inner">
+    <button id="tab-pick" class="tab" type="button" data-tab="pick" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h3.5c2 0 3 1 4.5 3.5l2 3.5c1.5 2.5 2.5 3.5 4.5 3.5H21"/><path d="M3 17h3.5c1.3 0 2.2-.5 3-1.5"/><path d="M14 8.5c.8-1 1.7-1.5 3-1.5H21"/><path d="m18.5 4.5 2.5 2.5-2.5 2.5"/><path d="m18.5 14.5 2.5 2.5-2.5 2.5"/></svg>
+      Pick
+    </button>
+    <button id="tab-house" class="tab" type="button" data-tab="house">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7V20a.5.5 0 0 1-.5.5h-5v-6h-6v6H4a.5.5 0 0 1-.5-.5z"/></svg>
+      Housemates
+    </button>
+    <button id="tab-log" class="tab" type="button" data-tab="log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h8"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      Log
+    </button>
+  </div>
+</nav>
+
+<script>
+(function () {
+  'use strict';
+
+  // Picker tuning
+  var K = 0.8;            // each extra time you've done a job multiplies your weight by e^-0.8 (about 0.45)
+  var SAME_AGAIN = 0.3;   // did this exact job in the latest entry
+  var WORKED_LAST = 0.7;  // did the other job in the latest entry
+  var LS_KEY = 'thalamos4-chores-v1';
+  var LOG_PAGE = 15;
+  var VIEWS = ['pick', 'house', 'log'];
+  var SUPABASE_URL = '';
+  var SUPABASE_PUBLISHABLE_KEY = '';
+
+  var S = {
+    view: 'pick',
+    mode: 'loading',      // loading | shared | local | signed-out | unavailable
+    cloud: false, accountId: null,
+    gotPeople: false, gotLogs: false,
+    stale: false, readOnly: false, notice: '',
+    people: [], logs: [],
+    away: new Set(),
+    editingPerson: null, personDraft: '',
+    editingLog: null, draft: null, logErr: '',
+    armed: null, lastPick: null, rolling: false,
+    showAllLogs: false, movedOpen: false
+  };
+  var backend = null;
+  var cloudClient = null;
+  var armTimer = null;
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function num(v) { v = Number(v); return isFinite(v) ? v : 0; }
+  function round1(v) { return Math.round(v * 10) / 10; }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function reduceMotion() { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+  function validISO(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function fmtDate(iso, short) {
+    if (!validISO(iso)) return iso || 'No date';
+    var p = iso.split('-').map(Number);
+    var dt = new Date(p[0], p[1] - 1, p[2]);
+    var o = short ? { day: 'numeric', month: 'short' } : { weekday: 'short', day: 'numeric', month: 'short' };
+    if (p[0] !== new Date().getFullYear()) o.year = 'numeric';
+    try { return dt.toLocaleDateString(undefined, o); } catch (e) { return iso; }
+  }
+  function ready() { return S.mode === 'local' || (S.mode === 'shared' && S.gotPeople && S.gotLogs); }
+  function canWrite() { return ready() && !S.readOnly && (!S.cloud || !S.stale); }
+  function personById(id) { for (var i = 0; i < S.people.length; i++) if (S.people[i].id === id) return S.people[i]; return null; }
+  function nameOf(id) { var p = personById(id); return p ? p.name : 'Removed housemate'; }
+
+  // ---------- screens ----------
+  function viewFromHash() {
+    var h = '';
+    try { h = (location.hash || '').replace('#', ''); } catch (e) { h = ''; }
+    return VIEWS.indexOf(h) !== -1 ? h : 'pick';
+  }
+  function showView(v) {
+    S.view = v;
+    VIEWS.forEach(function (n) {
+      $('view-' + n).hidden = n !== v || (S.cloud && !ready());
+      var t = $('tab-' + n);
+      if (n === v) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+    });
+  }
+  function go(v) {
+    if (VIEWS.indexOf(v) === -1) return;
+    if (v !== S.view) {
+      showView(v);
+      try { if (location.hash !== '#' + v) location.hash = v; } catch (e) { /* hash not available */ }
+    }
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- data shaping ----------
+  function normPeople(arr) {
+    return arr.map(function (p) {
+      return {
+        id: p.id,
+        name: String(p.name || '').trim() || 'Unnamed',
+        active: p.active !== false,
+        baseBath: num(p.baseBath), baseRoom: num(p.baseRoom),
+        createdAt: num(p.createdAt)
+      };
+    }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+  function normLogs(arr) {
+    return arr.map(function (l) {
+      return {
+        id: l.id,
+        date: typeof l.date === 'string' ? l.date : '',
+        bathroom: Array.isArray(l.bathroom) ? l.bathroom.filter(function (x) { return typeof x === 'string' && x; }).slice(0, 2) : [],
+        room: typeof l.room === 'string' ? l.room : '',
+        note: typeof l.note === 'string' ? l.note : '',
+        source: l.source === 'pick' ? 'pick' : 'manual',
+        createdAt: num(l.createdAt)
+      };
+    }).sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      return b.createdAt - a.createdAt;
+    });
+  }
+
+  // ---------- fairness ----------
+  function computeStats() {
+    var st = Object.create(null);
+    S.people.forEach(function (p) { st[p.id] = { bath: 0, room: 0, last: null }; });
+    S.logs.forEach(function (l) { // newest first, so the first date seen is the latest
+      l.bathroom.forEach(function (id) { var s = st[id]; if (s) { s.bath++; if (!s.last) s.last = l.date; } });
+      var r = st[l.room]; if (r) { r.room++; if (!r.last) r.last = l.date; }
+    });
+    return st;
+  }
+  function houseAverage(st) {
+    var active = S.people.filter(function (p) { return p.active; });
+    if (!active.length || !S.logs.length) return { bath: 0, room: 0 };
+    var b = 0, r = 0;
+    active.forEach(function (p) { b += st[p.id].bath + p.baseBath; r += st[p.id].room + p.baseRoom; });
+    return { bath: b / active.length, room: r / active.length };
+  }
+  function computeOdds(avail, st) {
+    var last = S.logs[0];
+    var cB = avail.map(function (p) { return st[p.id].bath + p.baseBath; });
+    var cR = avail.map(function (p) { return st[p.id].room + p.baseRoom; });
+    var minB = Math.min.apply(null, cB), minR = Math.min.apply(null, cR);
+    var wB = [], wR = [];
+    avail.forEach(function (p, i) {
+      var wb = Math.exp(-K * (cB[i] - minB)), wr = Math.exp(-K * (cR[i] - minR));
+      if (last) {
+        var inB = last.bathroom.indexOf(p.id) !== -1, inR = last.room === p.id;
+        if (inB) { wb *= SAME_AGAIN; wr *= WORKED_LAST; }
+        if (inR) { wr *= SAME_AGAIN; wb *= WORKED_LAST; }
+      }
+      wB.push(wb); wR.push(wr);
+    });
+    var n = avail.length, list = [], total = 0;
+    var pb = new Array(n).fill(0), pr = new Array(n).fill(0);
+    for (var i = 0; i < n; i++) for (var j = i + 1; j < n; j++) for (var k = 0; k < n; k++) {
+      if (k === i || k === j) continue;
+      var w = wB[i] * wB[j] * wR[k];
+      total += w; pb[i] += w; pb[j] += w; pr[k] += w;
+      list.push([i, j, k, w]);
+    }
+    return {
+      list: list, total: total,
+      pb: pb.map(function (x) { return x / total; }),
+      pr: pr.map(function (x) { return x / total; })
+    };
+  }
+  function sampleAssignment(avail, od) {
+    var r = Math.random() * od.total, pick = od.list[od.list.length - 1];
+    for (var i = 0; i < od.list.length; i++) { r -= od.list[i][3]; if (r <= 0) { pick = od.list[i]; break; } }
+    var b = [avail[pick[0]], avail[pick[1]]];
+    if (Math.random() < 0.5) b.reverse();
+    return { b1: b[0], b2: b[1], r: avail[pick[2]] };
+  }
+  function derive() {
+    var st = computeStats();
+    var active = S.people.filter(function (p) { return p.active; });
+    var avail = active.filter(function (p) { return !S.away.has(p.id); });
+    var od = avail.length >= 3 ? computeOdds(avail, st) : null;
+    return { st: st, active: active, avail: avail, od: od };
+  }
+
+  // ---------- storage ----------
+  function startLocal() {
+    var data = { people: {}, logs: {} };
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (raw) { var d = JSON.parse(raw); if (d && typeof d === 'object') data = { people: d.people || {}, logs: d.logs || {} }; }
+    } catch (e) { /* storage blocked: start empty */ }
+    function sync() {
+      S.people = normPeople(recordRows(data.people));
+      S.logs = normLogs(recordRows(data.logs));
+      render();
+    }
+    function op(fn) {
+      return function (a, b) {
+        fn(a, b); sync();
+        try { localStorage.setItem(LS_KEY, JSON.stringify(data)); }
+        catch (e) { return Promise.reject({ code: 'local_save' }); }
+        return Promise.resolve();
+      };
+    }
+    backend = {
+      newId: function () { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); },
+      putPerson: op(function (id, body) { data.people[id] = body; }),
+      delPerson: op(function (id) { delete data.people[id]; }),
+      putLog: op(function (id, body) { data.logs[id] = body; }),
+      delLog: op(function (id) { delete data.logs[id]; })
+    };
+    window.addEventListener('storage', function (e) {
+      if (e.key !== LS_KEY) return;
+      try { var d = JSON.parse(e.newValue || '{}'); data = { people: d.people || {}, logs: d.logs || {} }; } catch (err) { /* ignore */ }
+      sync();
+    });
+    S.mode = 'local';
+    sync();
+  }
+
+  function startShared(db) {
+    var peopleCol = db.collection('people'), logsCol = db.collection('logs');
+    backend = {
+      newId: function () { return logsCol.doc().id; },
+      putPerson: function (id, body) { return peopleCol.doc(id).set(body); },
+      delPerson: function (id) { return peopleCol.doc(id).delete(); },
+      putLog: function (id, body) { return logsCol.doc(id).set(body); },
+      delLog: function (id) { return logsCol.doc(id).delete(); }
+    };
+    S.mode = 'shared';
+    var confirmed = { people: false, logs: false };
+    var timer = setTimeout(function () {
+      if (!(confirmed.people && confirmed.logs)) { S.stale = true; render(); }
+    }, 10000);
+    function settle() {
+      if (confirmed.people && confirmed.logs) { clearTimeout(timer); S.stale = false; }
+    }
+    function listen(col, key, retries) {
+      col.onSnapshot(function (snap) {
+        var rows = snap.docs.map(function (d) { return Object.assign({}, d.data(), { id: d.id }); });
+        if (key === 'people') { S.people = normPeople(rows); S.gotPeople = true; }
+        else { S.logs = normLogs(rows); S.gotLogs = true; }
+        if (!snap.metadata.fromCache) confirmed[key] = true;
+        settle();
+        render();
+      }, function (err) {
+        clearTimeout(timer); S.stale = false;
+        if (err && err.code === 'unavailable' && retries > 0) {
+          setTimeout(function () { listen(col, key, retries - 1); }, 3000);
+          return;
+        }
+        if (key === 'people') S.gotPeople = true; else S.gotLogs = true;
+        if (err && err.code === 'revoked') S.readOnly = true;
+        S.notice = 'Lost the connection to the house list. Reload the page to see the latest changes.';
+        render();
+      });
+    }
+    listen(peopleCol, 'people', 3);
+    listen(logsCol, 'logs', 3);
+    render();
+  }
+
+  function recordRows(records) {
+    return Object.keys(records).map(function (id) { return Object.assign({}, records[id], { id: id }); });
+  }
+
+  async function downloadBackup() {
+    if (!ready() || (S.cloud && S.stale)) return;
+    var source = backend;
+    var button = $('download-backup');
+    button.disabled = true;
+    try {
+      var data = source.backup ? await source.backup() : {
+        people: Object.fromEntries(S.people.map(function (person) { return [person.id, person]; })),
+        logs: Object.fromEntries(S.logs.map(function (log) { return [log.id, log]; }))
+      };
+      if (backend !== source) return;
+      var backup = { version: 1, exportedAt: new Date().toISOString(), people: data.people, logs: data.logs };
+      var url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = 'thalamos4-' + todayISO() + '.json';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+    } catch (error) {
+      if (backend !== source) return;
+      S.notice = 'Could not download a backup. Try again when connected.';
+      render();
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function isObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+
+  async function importBackup() {
+    var input = $('backup-file');
+    var file = input.files[0];
+    input.value = '';
+    if (!file || !canWrite() || !backend.restore) return;
+    var target = backend;
+    var button = $('import-backup');
+    button.disabled = true;
+    try {
+      var data;
+      try { data = JSON.parse(await file.text()); } catch (error) { data = null; }
+      if (backend !== target) return;
+      var valid = isObject(data) && (data.version === 1 || data.version === undefined) &&
+        [data.people, data.logs].every(function (records) {
+          return isObject(records) && Object.keys(records).every(function (id) {
+            return /^[A-Za-z0-9_-]{1,128}$/.test(id) && isObject(records[id]);
+          });
+        });
+      if (!valid) {
+        S.notice = 'Choose a valid Thalamos 4 JSON backup.';
+      } else if (canWrite()) {
+        await target.restore(data);
+        if (backend !== target) return;
+        S.notice = 'Backup imported. Records already in the shared database were kept.';
+      }
+    } catch (error) {
+      if (backend !== target) return;
+      S.notice = 'Could not import the backup. Check your connection and try again.';
+    } finally {
+      button.disabled = false;
+    }
+    render();
+  }
+
+  function readCloudHouse(client) {
+    var query = client.from('thalamos_house').select('revision, people, logs').eq('id', true);
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      query = query.abortSignal(AbortSignal.timeout(12000));
+    }
+    return query.maybeSingle();
+  }
+
+  function watchCloudHouse(client) {
+    var active = true, revision = -1, readNumber = 0;
+
+    function applyHouse(house) {
+      if (!active || house.revision < revision) return;
+      if (house.revision !== revision || !ready()) {
+        S.people = normPeople(recordRows(house.people));
+        S.logs = normLogs(recordRows(house.logs));
+        S.gotPeople = S.gotLogs = true;
+        revision = house.revision;
+      } else if (!S.stale) {
+        return;
+      }
+      S.mode = 'shared';
+      S.stale = false;
+      if (S.notice === 'This account does not have access to the shared house.') S.notice = '';
+      render();
+    }
+
+    async function refresh() {
+      if (!active) return;
+      var request = ++readNumber;
+      var startedAt = revision;
+      try {
+        var result = await readCloudHouse(client);
+        if (!active || request !== readNumber) return;
+        if (result.error) throw result.error;
+        if (!result.data) {
+          S.mode = 'unavailable';
+          S.people = [];
+          S.logs = [];
+          S.gotPeople = S.gotLogs = false;
+          S.stale = false;
+          S.notice = 'This account does not have access to the shared house.';
+          render();
+          return;
+        }
+        applyHouse(result.data);
+      } catch (error) {
+        if (!active || request !== readNumber || startedAt !== revision) return;
+        S.stale = true;
+        render();
+      }
+    }
+
+    async function save(rpc, args) {
+      var result = await client.rpc(rpc, args);
+      if (result.error) throw result.error;
+      applyHouse(result.data);
+    }
+
+    function change(collection, id, record) {
+      return save('thalamos_change', { p_collection: collection, p_id: id, p_record: record });
+    }
+
+    backend = {
+      newId: function () { return crypto.randomUUID(); },
+      putPerson: function (id, record) { return change('people', id, record); },
+      delPerson: function (id) { return change('people', id, null); },
+      putLog: function (id, record) { return change('logs', id, record); },
+      delLog: function (id) { return change('logs', id, null); },
+      backup: async function () {
+        var result = await readCloudHouse(client);
+        if (result.error || !result.data) throw result.error || new Error('House unavailable');
+        return result.data;
+      },
+      restore: function (data) { return save('thalamos_import', { p_people: data.people, p_logs: data.logs }); }
+    };
+
+    var channel = client.channel('thalamos-house-' + crypto.randomUUID()).on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'thalamos_house'
+    }, refresh).subscribe(function (status) {
+      if (status === 'SUBSCRIBED') refresh();
+    });
+    var poll = setInterval(function () { if (!document.hidden) refresh(); }, 15000);
+    function onVisible() { if (!document.hidden) refresh(); }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', refresh);
+    refresh();
+
+    return function () {
+      active = false;
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', refresh);
+      client.removeChannel(channel);
+    };
+  }
+
+  async function startCloud() {
+    S.cloud = true;
+    render();
+    try {
+      if (new URL(SUPABASE_URL).protocol !== 'https:' || !SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) {
+        throw new Error('Invalid Supabase configuration');
+      }
+      await new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2';
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+      cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { detectSessionInUrl: false } });
+      var stopWatching;
+      cloudClient.auth.onAuthStateChange(function (event, session) {
+        var id = session ? session.user.id : null;
+        // Leave the auth callback before starting requests that use the session.
+        setTimeout(function () {
+          if (S.accountId === id && (id || S.mode === 'signed-out')) return;
+          if (stopWatching) { stopWatching(); stopWatching = null; }
+          backend = null;
+          S.accountId = id;
+          S.mode = id ? 'loading' : 'signed-out';
+          S.people = [];
+          S.logs = [];
+          S.away.clear();
+          S.gotPeople = S.gotLogs = false;
+          S.stale = false;
+          S.notice = '';
+          S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
+          $('new-name').value = '';
+          setPeopleErr('');
+          render();
+          if (id) stopWatching = watchCloudHouse(cloudClient);
+        }, 0);
+      });
+    } catch (error) {
+      S.mode = 'unavailable';
+      S.notice = 'Could not connect to shared storage. Check the site configuration and reload.';
+      render();
+    }
+  }
+
+  async function signIn() {
+    var button = $('sign-in-btn');
+    if (!cloudClient || button.disabled) return;
+    button.disabled = true;
+    $('sign-in-error').textContent = '';
+    var password = $('sign-in-password');
+    try {
+      var result = await cloudClient.auth.signInWithPassword({ email: $('sign-in-email').value.trim(), password: password.value });
+      if (result.error) throw result.error;
+      password.value = '';
+    } catch (error) {
+      $('sign-in-error').textContent = error.code === 'invalid_credentials' ? 'Check your email and password.' : 'Could not sign in. Try again.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function signOut() {
+    var button = $('sign-out');
+    button.disabled = true;
+    try {
+      var result = await cloudClient.auth.signOut({ scope: 'local' });
+      if (result.error) throw result.error;
+    } catch (error) {
+      S.notice = 'Could not sign out. Try again.';
+      render();
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function write(fn) {
+    var source = backend;
+    return fn().then(function () { return backend === source; }, function (e) {
+      if (backend !== source) return false;
+      if (e && e.code === 'unavailable') {
+        return sleep(300 + Math.random() * 700).then(function () {
+          if (backend !== source) return false;
+          return fn().then(function () { return backend === source; }, function (error) {
+            if (backend === source) writeFailed(error);
+            return false;
+          });
+        });
+      }
+      writeFailed(e); return false;
+    });
+  }
+  function writeFailed(e) {
+    var c = e && e.code;
+    if (c === 'invalid_argument' && S.mode === 'shared') {
+      S.readOnly = true;
+      S.notice = "You can see the house list but can't change it. Ask whoever shared this page to make you a Contributor.";
+    } else if (c === 'quota_exceeded') {
+      S.notice = 'The house list is full. Delete some old log entries, then try again.';
+    } else if (c === 'local_save') {
+      S.notice = "This browser didn't keep that change. It may be in private mode or out of space.";
+    } else if (c === 'revoked') {
+      S.readOnly = true;
+      S.notice = "This page can't save changes any more. Reload it to try again.";
+    } else {
+      S.notice = "That change didn't save. Check your connection and try again.";
+    }
+    render();
+  }
+
+  // ---------- rendering ----------
+  function render() {
+    var a = document.activeElement, aid = a && a.id ? a.id : null, sel = null;
+    try { if (aid && typeof a.selectionStart === 'number') sel = [a.selectionStart, a.selectionEnd]; } catch (e) { sel = null; }
+    if (S.editingLog && S.editingLog !== 'new' && !S.logs.some(function (l) { return l.id === S.editingLog; })) { S.editingLog = null; S.draft = null; }
+    if (S.editingPerson && !personById(S.editingPerson)) S.editingPerson = null;
+    var d = derive();
+    renderHeader();
+    renderPick(d);
+    renderPeople(d);
+    renderLog();
+    if (aid) {
+      var el = $(aid);
+      if (el && el !== document.activeElement) {
+        try { el.focus({ preventScroll: true }); if (sel && el.setSelectionRange) el.setSelectionRange(sel[0], sel[1]); } catch (e) { /* ignore */ }
+      }
+    }
+  }
+
+  function renderHeader() {
+    var cls = '', text = 'Connecting…';
+    if (S.mode === 'local') { cls = 'warn'; text = 'Saved on this phone'; }
+    else if (S.mode === 'signed-out') { text = 'Sign in required'; }
+    else if (S.mode === 'unavailable') { cls = 'bad'; text = 'Not connected'; }
+    else if (S.cloud && S.stale) { cls = 'warn'; text = 'Reconnecting…'; }
+    else if (S.mode === 'shared') {
+      if (S.stale) { cls = 'warn'; text = 'Reconnecting…'; }
+      else if (!ready()) { text = 'Connecting…'; }
+      else if (S.readOnly) { cls = 'warn'; text = 'View only'; }
+      else { cls = 'ok'; text = 'Shared with the house'; }
+    }
+    var s = $('sync');
+    s.className = 'sync' + (cls ? ' ' + cls : '');
+    s.textContent = text;
+    var msg = S.notice || (S.stale ? "Can't reach the house list yet. It will show up here once the connection is back." : '');
+    $('notice').hidden = !msg;
+    $('notice-text').textContent = msg;
+    $('notice-close').hidden = S.cloud && !S.notice;
+    var locked = S.cloud && !ready();
+    $('tabs').hidden = locked;
+    $('view-' + S.view).hidden = locked;
+    $('sign-in').hidden = S.mode !== 'signed-out';
+    $('sign-out').hidden = !S.accountId;
+    $('data-actions').hidden = !ready() || S.stale;
+    $('import-backup').hidden = !S.cloud || !canWrite();
+  }
+
+  function nameSpans(ids, emptyText) {
+    if (!ids.length) return '<span class="name-big empty">' + esc(emptyText) + '</span>';
+    return ids.map(function (id) { return '<span class="name-big">' + esc(nameOf(id)) + '</span>'; }).join('');
+  }
+  function oddBar(cls, label, v) {
+    var pct = v > 0 && v < 0.005 ? '<1%' : Math.round(v * 100) + '%';
+    return '<span class="odd ' + cls + '" role="img" aria-label="' + label + ' chance ' + esc(pct) + '">' +
+      '<span class="k">' + label + '</span><span class="bar"><i style="width:' + (v * 100).toFixed(1) + '%"></i></span>' +
+      '<span class="pct">' + esc(pct) + '</span></span>';
+  }
+  function homeRow(p, d) {
+    var home = !S.away.has(p.id), odds;
+    if (!home) odds = '<span class="muted small">Away, sits out this pick</span>';
+    else if (!d.od) odds = '<span class="muted small">Needs 3 people at home</span>';
+    else {
+      var i = d.avail.indexOf(p);
+      odds = '<span class="odds">' + oddBar('bath', 'Bath', d.od.pb[i]) + oddBar('room', 'Room', d.od.pr[i]) + '</span>';
+    }
+    return '<li><label class="home-row' + (home ? '' : ' is-away') + '">' +
+      '<span class="switch"><input type="checkbox" id="home-' + esc(p.id) + '" data-home="' + esc(p.id) + '"' + (home ? ' checked' : '') + '>' +
+      '<span class="track"></span></span>' +
+      '<span class="h-main"><span class="h-name">' + esc(p.name) + '</span><span class="sr">, home for the next pick</span>' +
+      '<span style="display:block">' + odds + '</span></span>' +
+      '</label></li>';
+  }
+
+  function renderPick(d) {
+    var latest = S.logs[0];
+    if (!S.rolling) {
+      if (!ready()) {
+        $('bath-names').innerHTML = '<span class="name-big empty">Loading…</span>';
+        $('room-names').innerHTML = '<span class="name-big empty">Loading…</span>';
+        $('pick-when').textContent = '';
+      } else if (latest) {
+        $('bath-names').innerHTML = nameSpans(latest.bathroom, 'Nobody');
+        $('room-names').innerHTML = nameSpans(latest.room ? [latest.room] : [], 'Nobody');
+        $('pick-when').textContent = (latest.id === S.lastPick ? 'Just picked · ' : '') + fmtDate(latest.date);
+      } else {
+        $('bath-names').innerHTML = '<span class="name-big empty">Not picked yet</span>';
+        $('room-names').innerHTML = '<span class="name-big empty">Not picked yet</span>';
+        $('pick-when').textContent = '';
+      }
+    }
+    var btn = $('pick-btn');
+    btn.disabled = !canWrite() || !d.od || S.rolling;
+    btn.textContent = S.rolling ? 'Picking…' : 'Pick cleaners';
+
+    var hint;
+    if (S.mode === 'unavailable') hint = 'Picking needs the shared house list.';
+    else if (!ready()) hint = 'Loading the house list…';
+    else if (S.readOnly) hint = "You can see the rota but can't change it.";
+    else if (d.active.length < 3) hint = 'Add at least 3 housemates to start picking' + (d.active.length ? ' (' + (3 - d.active.length) + ' more).' : '.');
+    else if (d.avail.length < 3) hint = 'At least 3 people need to be home to pick. Switch someone back on below.';
+    else hint = 'Chooses 2 for the bathroom and 1 for the room from the ' + d.avail.length + ' people at home, then saves it to the log.';
+    $('pick-hint').textContent = hint;
+
+    var status = $('pick-status');
+    var hasPick = !S.rolling && S.lastPick && S.logs.some(function (l) { return l.id === S.lastPick; });
+    status.innerHTML = hasPick && canWrite()
+      ? 'Saved to the log. <button class="btn btn-quiet" type="button" id="b-undo" data-act="undo-pick">Undo</button>'
+      : '';
+
+    var list = $('home-list');
+    if (!ready()) list.innerHTML = '<li class="empty">' + (S.mode === 'unavailable' ? 'The house list isn\'t available here.' : 'Loading housemates…') + '</li>';
+    else if (!d.active.length) {
+      list.innerHTML = '<li class="empty">No housemates yet.' +
+        (canWrite() ? '<button class="btn" type="button" id="b-go-house" data-act="go" data-id="house">Add housemates</button>' : '') + '</li>';
+    } else list.innerHTML = d.active.map(function (p) { return homeRow(p, d); }).join('');
+  }
+
+  function metaText(s) {
+    return 'Bathroom ' + s.bath + ' · Room ' + s.room + (s.last ? ' · last ' + fmtDate(s.last, true) : ' · not cleaned yet');
+  }
+  function delBtn(kind, id) {
+    var armed = S.armed === kind + ':' + id;
+    return '<button class="btn btn-quiet btn-danger' + (armed ? ' armed' : '') + '" type="button" id="b-del-' + kind + '-' + esc(id) +
+      '" data-act="del-' + kind + '" data-id="' + esc(id) + '">' + (armed ? 'Confirm delete' : 'Delete') + '</button>';
+  }
+  function personRow(p, d, w) {
+    var s = d.st[p.id];
+    if (S.editingPerson === p.id) return personForm(p, s);
+    return '<li class="person"><div class="p-main"><div class="p-name">' + esc(p.name) + '</div><div class="p-meta">' + esc(metaText(s)) + '</div></div>' +
+      (w ? '<button class="btn btn-quiet" type="button" id="b-editp-' + esc(p.id) + '" data-act="edit-person" data-id="' + esc(p.id) + '">Edit</button>' : '') +
+      '</li>';
+  }
+  function personForm(p, s) {
+    var hasLogs = s.bath + s.room > 0;
+    return '<li class="person editing"><form class="person-form" data-id="' + esc(p.id) + '">' +
+      '<label class="sr" for="pn-' + esc(p.id) + '">Name</label>' +
+      '<input type="text" id="pn-' + esc(p.id) + '" data-pdraft maxlength="40" autocapitalize="words" enterkeyhint="done" value="' + esc(S.personDraft) + '">' +
+      '<div class="row-acts">' +
+      '<button class="btn btn-primary" type="submit">Save</button>' +
+      '<button class="btn" type="button" data-act="cancel-person">Cancel</button>' +
+      '<button class="btn" type="button" id="b-out-' + esc(p.id) + '" data-act="move-out" data-id="' + esc(p.id) + '">Moved out</button>' +
+      (hasLogs ? '' : delBtn('person', p.id)) +
+      '</div>' +
+      '<p class="hint small">' + (hasLogs
+        ? 'They have log entries, so you can mark them as moved out but not delete them.'
+        : 'Moved out keeps their history but stops picking them.') + '</p>' +
+      '</form></li>';
+  }
+  function movedRow(p, d, w) {
+    var s = d.st[p.id], hasLogs = s.bath + s.room > 0;
+    return '<li class="person"><div class="p-main"><div class="p-name">' + esc(p.name) + '</div><div class="p-meta">' + esc(metaText(s)) + '</div></div>' +
+      '<div class="row-acts">' + (w
+        ? '<button class="btn btn-quiet" type="button" id="b-back-' + esc(p.id) + '" data-act="move-back" data-id="' + esc(p.id) + '">Moved back</button>' + (hasLogs ? '' : delBtn('person', p.id))
+        : '') + '</div></li>';
+  }
+  function renderPeople(d) {
+    var w = canWrite();
+    $('add-person').hidden = S.readOnly || S.mode === 'unavailable';
+    $('new-name').disabled = !w;
+    $('add-person-btn').disabled = !w;
+    $('people-count').textContent = ready() ? (d.active.length === 1 ? '1 living here' : d.active.length + ' living here') : '';
+    var list = $('people-list');
+    if (!ready()) {
+      list.innerHTML = '<li class="empty">' + (S.mode === 'unavailable' ? 'The house list isn\'t available here.' : 'Loading housemates…') + '</li>';
+      $('moved').innerHTML = '';
+      return;
+    }
+    list.innerHTML = d.active.length
+      ? d.active.map(function (p) { return personRow(p, d, w); }).join('')
+      : '<li class="empty">No housemates yet. Add everyone who lives here. You need at least 3 people to pick.</li>';
+    var gone = S.people.filter(function (p) { return !p.active; });
+    $('moved').innerHTML = gone.length
+      ? '<details id="moved-d" class="moved"' + (S.movedOpen ? ' open' : '') + '><summary>Moved out (' + gone.length + ')</summary><ul class="people">' +
+        gone.map(function (p) { return movedRow(p, d, w); }).join('') + '</ul></details>'
+      : '';
+  }
+
+  function peopleOptions(sel, blankLabel) {
+    var h = '<option value="">' + esc(blankLabel) + '</option>';
+    var active = S.people.filter(function (p) { return p.active; });
+    var gone = S.people.filter(function (p) { return !p.active; });
+    active.forEach(function (p) { h += '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>'; });
+    if (gone.length) {
+      h += '<optgroup label="Moved out">';
+      gone.forEach(function (p) { h += '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(p.name) + '</option>'; });
+      h += '</optgroup>';
+    }
+    if (sel && !personById(sel)) h += '<option value="' + esc(sel) + '" selected>Removed housemate</option>';
+    return h;
+  }
+  function logFormHtml() {
+    var dr = S.draft, isNew = S.editingLog === 'new';
+    return '<li class="entry editing" id="log-form-wrap"><form id="log-form" class="log-form" novalidate>' +
+      '<div class="f f-wide"><label for="lf-date">Date</label><input type="date" id="lf-date" value="' + esc(dr.date) + '"></div>' +
+      '<div class="f"><label for="lf-b1">Bathroom</label><select id="lf-b1">' + peopleOptions(dr.b1, 'Choose…') + '</select></div>' +
+      '<div class="f"><label for="lf-b2">and</label><select id="lf-b2">' + peopleOptions(dr.b2, 'Nobody else') + '</select></div>' +
+      '<div class="f f-wide"><label for="lf-r">Room</label><select id="lf-r">' + peopleOptions(dr.r, 'Choose…') + '</select></div>' +
+      '<div class="f f-wide"><label for="lf-note">Note</label><input type="text" id="lf-note" maxlength="140" enterkeyhint="done" placeholder="Optional, e.g. swapped with Nikos" value="' + esc(dr.note) + '"></div>' +
+      '<p class="form-err" id="lf-err">' + esc(S.logErr) + '</p>' +
+      '<div class="f-acts"><button class="btn" type="button" data-act="cancel-log">Cancel</button>' +
+      '<button class="btn btn-primary" type="submit">' + (isNew ? 'Add entry' : 'Save') + '</button></div>' +
+      '</form></li>';
+  }
+  function chip(cls, id) {
+    var p = personById(id);
+    return '<span class="chip ' + cls + (p && p.active ? '' : ' gone') + '">' + esc(nameOf(id)) + '</span>';
+  }
+  function entryRow(l, w) {
+    var bath = l.bathroom.length ? l.bathroom.map(function (id) { return chip('bath', id); }).join('') : '<span class="muted">Nobody</span>';
+    var room = l.room ? chip('room', l.room) : '<span class="muted">Nobody</span>';
+    return '<li class="entry">' +
+      '<span class="e-date">' + esc(fmtDate(l.date)) + (l.source === 'manual' ? '<small>added by hand</small>' : '') + '</span>' +
+      '<span class="e-acts">' + (w
+        ? '<button class="btn btn-quiet" type="button" id="b-editl-' + esc(l.id) + '" data-act="edit-log" data-id="' + esc(l.id) + '">Edit</button>' + delBtn('log', l.id)
+        : '') + '</span>' +
+      '<span class="e-bath"><span class="lbl">Bathroom</span><span class="chips">' + bath + '</span></span>' +
+      '<span class="e-room"><span class="lbl">Room</span><span class="chips">' + room + '</span></span>' +
+      '<span class="e-note">' + esc(l.note) + '</span>' +
+      '</li>';
+  }
+  function renderLog() {
+    var w = canWrite();
+    var addBtn = $('add-log-btn');
+    addBtn.hidden = !w;
+    addBtn.disabled = S.editingLog === 'new';
+    var area = $('log-area');
+    if (!ready()) {
+      area.innerHTML = '<p class="empty">' + (S.mode === 'unavailable' ? 'The log isn\'t available here.' : 'Loading the log…') + '</p>';
+      return;
+    }
+    var h = '';
+    if (S.editingLog === 'new' && S.draft) h += '<ul class="log new-entry">' + logFormHtml() + '</ul>';
+    if (!S.logs.length) {
+      if (S.editingLog !== 'new') h += '<p class="empty">Nothing logged yet. Pick cleaners on the Pick screen, or add past cleans so the picker knows who did what before.</p>';
+      area.innerHTML = h;
+      return;
+    }
+    var shown = S.showAllLogs ? S.logs : S.logs.slice(0, LOG_PAGE);
+    h += '<ol class="log">' + shown.map(function (l) { return S.editingLog === l.id && S.draft ? logFormHtml() : entryRow(l, w); }).join('') + '</ol>';
+    if (S.logs.length > LOG_PAGE) {
+      h += '<button class="btn btn-quiet more" type="button" id="b-more" data-act="toggle-all">' +
+        (S.showAllLogs ? 'Show fewer' : 'Show all ' + S.logs.length + ' entries') + '</button>';
+    }
+    area.innerHTML = h;
+  }
+
+  // ---------- actions ----------
+  function roll(avail, choice) {
+    return new Promise(function (resolve) {
+      if (reduceMotion()) { resolve(); return; }
+      $('bath-names').innerHTML = '<span class="name-big rolling" id="rs0"></span><span class="name-big rolling" id="rs1"></span>';
+      $('room-names').innerHTML = '<span class="name-big rolling" id="rs2"></span>';
+      var finals = [choice.b1.name, choice.b2.name, choice.r.name];
+      var stops = [650, 850, 1100];
+      var t0 = performance.now();
+      function tick() {
+        var t = performance.now() - t0, done = true;
+        for (var i = 0; i < 3; i++) {
+          var el = $('rs' + i);
+          if (!el) continue;
+          if (t >= stops[i]) {
+            if (!el.dataset.done) { el.dataset.done = '1'; el.textContent = finals[i]; el.className = 'name-big landed'; }
+          } else {
+            done = false;
+            el.textContent = avail[Math.floor(Math.random() * avail.length)].name;
+          }
+        }
+        if (done) { clearInterval(iv); setTimeout(resolve, 320); }
+      }
+      var iv = setInterval(tick, 65);
+      tick();
+    });
+  }
+
+  function pick() {
+    if (S.rolling || !canWrite()) return;
+    var d = derive();
+    if (!d.od) return;
+    var choice = sampleAssignment(d.avail, d.od);
+    var id = backend.newId();
+    var body = {
+      date: todayISO(), bathroom: [choice.b1.id, choice.b2.id], room: choice.r.id,
+      note: '', source: 'pick', createdAt: Date.now()
+    };
+    S.rolling = true;
+    window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
+    render();
+    Promise.all([write(function () { return backend.putLog(id, body); }), roll(d.avail, choice)]).then(function (res) {
+      S.rolling = false;
+      if (res[0]) S.lastPick = id;
+      render();
+    });
+  }
+
+  function setPeopleErr(msg) { $('people-err').textContent = msg; }
+
+  function addPerson() {
+    if (!canWrite()) return;
+    var input = $('new-name');
+    var name = input.value.trim().replace(/\s+/g, ' ');
+    if (!name) { setPeopleErr('Type a name first.'); return; }
+    var clash = S.people.filter(function (p) { return p.name.toLocaleLowerCase() === name.toLocaleLowerCase(); })[0];
+    if (clash) {
+      setPeopleErr(clash.active ? name + ' is already on the list.' : name + ' is under Moved out. Use Moved back there instead.');
+      return;
+    }
+    var avg = houseAverage(computeStats());
+    var id = backend.newId();
+    input.value = '';
+    setPeopleErr('');
+    write(function () {
+      return backend.putPerson(id, { name: name, active: true, baseBath: round1(avg.bath), baseRoom: round1(avg.room), createdAt: Date.now() });
+    }).then(function (ok) { if (!ok && !input.value) input.value = name; });
+  }
+
+  function personBody(p, patch) {
+    return Object.assign({ name: p.name, active: p.active, baseBath: p.baseBath, baseRoom: p.baseRoom, createdAt: p.createdAt || Date.now() }, patch);
+  }
+  function savePersonName(id) {
+    var p = personById(id);
+    if (!p) return;
+    var name = S.personDraft.trim().replace(/\s+/g, ' ');
+    if (!name) { setPeopleErr('A name can\'t be empty.'); return; }
+    var clash = S.people.some(function (o) { return o.id !== id && o.name.toLocaleLowerCase() === name.toLocaleLowerCase(); });
+    if (clash) { setPeopleErr(name + ' is already on the list.'); return; }
+    setPeopleErr('');
+    S.editingPerson = null;
+    if (name === p.name) { render(); return; }
+    write(function () { return backend.putPerson(id, personBody(p, { name: name })); });
+    render();
+  }
+  function moveOut(id) {
+    var p = personById(id);
+    if (!p) return;
+    S.editingPerson = null;
+    S.away.delete(id);
+    write(function () { return backend.putPerson(id, personBody(p, { active: false })); });
+    render();
+  }
+  function moveBack(id) {
+    var p = personById(id);
+    if (!p) return;
+    var st = computeStats(), avg = houseAverage(st), s = st[id];
+    var baseBath = Math.max(p.baseBath, round1(avg.bath - s.bath));
+    var baseRoom = Math.max(p.baseRoom, round1(avg.room - s.room));
+    write(function () { return backend.putPerson(id, personBody(p, { active: true, baseBath: baseBath, baseRoom: baseRoom })); });
+  }
+  function arm(key) {
+    S.armed = key;
+    clearTimeout(armTimer);
+    armTimer = setTimeout(function () { S.armed = null; render(); }, 4000);
+    render();
+  }
+  function deletePerson(id) {
+    var key = 'person:' + id;
+    if (S.armed !== key) { arm(key); return; }
+    S.armed = null;
+    var s = computeStats()[id];
+    if (s && s.bath + s.room > 0) { render(); return; }
+    S.editingPerson = null;
+    S.away.delete(id);
+    write(function () { return backend.delPerson(id); });
+    render();
+  }
+  function deleteLog(id) {
+    var key = 'log:' + id;
+    if (S.armed !== key) { arm(key); return; }
+    S.armed = null;
+    if (S.lastPick === id) S.lastPick = null;
+    write(function () { return backend.delLog(id); });
+    render();
+  }
+  function undoPick() {
+    var id = S.lastPick;
+    if (!id) return;
+    S.lastPick = null;
+    write(function () { return backend.delLog(id); });
+    render();
+  }
+  function startLogEdit(id) {
+    if (!canWrite()) return;
+    if (id === 'new') {
+      S.draft = { date: todayISO(), b1: '', b2: '', r: '', note: '' };
+    } else {
+      var l = S.logs.filter(function (x) { return x.id === id; })[0];
+      if (!l) return;
+      S.draft = { date: validISO(l.date) ? l.date : todayISO(), b1: l.bathroom[0] || '', b2: l.bathroom[1] || '', r: l.room, note: l.note };
+    }
+    S.editingLog = id;
+    S.logErr = '';
+    render();
+    var f = $('log-form-wrap');
+    if (f && f.scrollIntoView) f.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
+  }
+  function cancelLog() { S.editingLog = null; S.draft = null; S.logErr = ''; render(); }
+  function saveLog() {
+    var dr = S.draft;
+    if (!dr) return;
+    var err = '';
+    if (!validISO(dr.date)) err = 'Pick a date.';
+    else if (!dr.b1 || !dr.r) err = 'Choose at least one person for the bathroom and one for the room.';
+    else {
+      var ids = [dr.b1, dr.r].concat(dr.b2 ? [dr.b2] : []);
+      if (new Set(ids).size !== ids.length) err = 'Each person can only have one job per clean. Choose different people.';
+    }
+    if (err) { S.logErr = err; render(); return; }
+    var isNew = S.editingLog === 'new';
+    var id = isNew ? backend.newId() : S.editingLog;
+    var prev = isNew ? null : S.logs.filter(function (l) { return l.id === id; })[0];
+    var body = {
+      date: dr.date,
+      bathroom: dr.b2 ? [dr.b1, dr.b2] : [dr.b1],
+      room: dr.r,
+      note: dr.note.trim().slice(0, 140),
+      source: prev ? prev.source : 'manual',
+      createdAt: prev ? prev.createdAt : Date.now()
+    };
+    S.editingLog = null; S.draft = null; S.logErr = '';
+    write(function () { return backend.putLog(id, body); });
+    render();
+  }
+
+  // ---------- events ----------
+  var DRAFT_FIELDS = { 'lf-date': 'date', 'lf-b1': 'b1', 'lf-b2': 'b2', 'lf-r': 'r', 'lf-note': 'note' };
+  function onField(e) {
+    var t = e.target;
+    if (DRAFT_FIELDS[t.id] && S.draft) { S.draft[DRAFT_FIELDS[t.id]] = t.value; return; }
+    if (t.hasAttribute && t.hasAttribute('data-pdraft')) { S.personDraft = t.value; return; }
+    if (e.type === 'change' && t.dataset && t.dataset.home) {
+      if (t.checked) S.away.delete(t.dataset.home); else S.away.add(t.dataset.home);
+      render();
+    }
+  }
+  function bindEvents() {
+    document.addEventListener('click', function (e) {
+      var tab = e.target.closest('[data-tab]');
+      if (tab) { go(tab.getAttribute('data-tab')); return; }
+      var b = e.target.closest('[data-act]');
+      if (!b) return;
+      var id = b.getAttribute('data-id');
+      switch (b.getAttribute('data-act')) {
+        case 'go': go(id); break;
+        case 'edit-person': {
+          var p = personById(id);
+          if (!p) return;
+          S.editingPerson = id; S.personDraft = p.name; setPeopleErr(''); render();
+          break;
+        }
+        case 'cancel-person': S.editingPerson = null; setPeopleErr(''); render(); break;
+        case 'move-out': moveOut(id); break;
+        case 'move-back': moveBack(id); break;
+        case 'del-person': deletePerson(id); break;
+        case 'edit-log': startLogEdit(id); break;
+        case 'cancel-log': cancelLog(); break;
+        case 'del-log': deleteLog(id); break;
+        case 'undo-pick': undoPick(); break;
+        case 'toggle-all': S.showAllLogs = !S.showAllLogs; render(); break;
+      }
+    });
+    document.addEventListener('submit', function (e) {
+      var f = e.target;
+      if (f.id === 'add-person') { e.preventDefault(); addPerson(); }
+      else if (f.id === 'sign-in') { e.preventDefault(); signIn(); }
+      else if (f.id === 'log-form') { e.preventDefault(); saveLog(); }
+      else if (f.classList.contains('person-form')) { e.preventDefault(); savePersonName(f.getAttribute('data-id')); }
+    });
+    document.addEventListener('input', onField);
+    document.addEventListener('change', onField);
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (S.editingLog) cancelLog();
+      else if (S.editingPerson) { S.editingPerson = null; render(); }
+    });
+    document.addEventListener('toggle', function (e) {
+      if (e.target && e.target.id === 'moved-d') S.movedOpen = e.target.open;
+    }, true);
+    window.addEventListener('hashchange', function () {
+      var v = viewFromHash();
+      if (v !== S.view) { showView(v); window.scrollTo(0, 0); }
+    });
+    $('pick-btn').addEventListener('click', pick);
+    $('add-log-btn').addEventListener('click', function () { startLogEdit('new'); });
+    $('notice-close').addEventListener('click', function () { S.notice = ''; if (!S.cloud) S.stale = false; render(); });
+    $('new-name').addEventListener('input', function () { setPeopleErr(''); });
+    $('sign-out').addEventListener('click', signOut);
+    $('download-backup').addEventListener('click', downloadBackup);
+    $('import-backup').addEventListener('click', function () { $('backup-file').click(); });
+    $('backup-file').addEventListener('change', importBackup);
+  }
+
+  // ---------- start ----------
+  function init() {
+    bindEvents();
+    showView(viewFromHash());
+    render();
+    var c = window.claude;
+    if (!c || typeof c.use !== 'function') {
+      if (SUPABASE_URL || SUPABASE_PUBLISHABLE_KEY) { startCloud(); return; }
+      if (location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+        startLocal();
+      } else {
+        S.cloud = true;
+        S.mode = 'unavailable';
+        S.notice = 'Shared storage has not been set up for this site.';
+        render();
+      }
+      return;
+    }
+    c.use('db').then(function (db) {
+      if (!db) {
+        S.mode = 'unavailable';
+        S.notice = "The house list isn't available here. Open the page on claude.ai, signed in with an account it has been shared with.";
+        render();
+        return;
+      }
+      startShared(db);
+    }, function () { S.mode = 'unavailable'; render(); });
+    c.use('user').then(function (u) {
+      if (!u) return;
+      return u.can('data.write').then(function (wr) { if (wr === false) { S.readOnly = true; render(); } });
+    }).catch(function () { /* keep controls; a refused write decides */ });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
