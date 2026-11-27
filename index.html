@@ -370,7 +370,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       <ul>
         <li>Bathroom, Room, and Gopin each use their own assignment history. The fewer times you have done a job, the bigger your chance of getting it.</li>
         <li>Each previous assignment reduces a housemate’s weight for that job.</li>
-        <li>If you did a job last time, you are much less likely to get it again. Anyone who cleaned last time also gets a smaller break on the other job.</li>
+        <li>Doing a job last time reduces your weight for that job. Anyone at home can be picked for Gopin, including today’s cleaners.</li>
         <li>It is still a random draw. The bars under each name show their real chances for the next pick.</li>
         <li>New housemates and returning housemates start at the house average for Bathroom and Room.</li>
         <li>Editing or deleting a log entry updates everyone's chances straight away.</li>
@@ -473,7 +473,6 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   // Picker tuning
   var K = 0.8;            // each extra time you've done a job multiplies your weight by e^-0.8 (about 0.45)
   var SAME_AGAIN = 0.3;   // did this exact job in the latest entry
-  var WORKED_LAST = 0.7;  // did the other job in the latest entry
   var LS_KEY = 'thalamos4-chores-v1';
   var LOG_PAGE = 15;
   var VIEWS = ['pick', 'house', 'log'];
@@ -619,15 +618,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     active.forEach(function (p) { b += st[p.id].bath + p.baseBath; r += st[p.id].room + p.baseRoom; });
     return { bath: b / active.length, room: r / active.length };
   }
-  function computeOdds(avail, st, last) {
-    var wB = [], wR = [], same = Math.log(SAME_AGAIN), other = Math.log(WORKED_LAST);
+  function computeOdds(avail, st, lastBath, lastRoom) {
+    var wB = [], wR = [], same = Math.log(SAME_AGAIN);
     avail.forEach(function (p) {
       var wb = -K * (st[p.id].bath + p.baseBath), wr = -K * (st[p.id].room + p.baseRoom);
-      if (last) {
-        var inB = last.bathroom.indexOf(p.id) !== -1, inR = last.room === p.id;
-        if (inB) { wb += same; wr += other; }
-        if (inR) { wr += same; wb += other; }
-      }
+      if (lastBath && lastBath.bathroom.includes(p.id)) wb += same;
+      if (lastRoom && lastRoom.room === p.id) wr += same;
       wB.push(wb); wR.push(wr);
     });
     var n = avail.length, list = [], total = 0, maxScore = -Infinity;
@@ -721,20 +717,16 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var st = computeStats();
     var active = S.people.filter(function (p) { return p.active; });
     var avail = active.filter(function (p) { return !S.away.has(p.id); });
-    var today = todayISO();
     var latestClean = S.logs.find(includesCleaning);
+    var lastBath = S.logs.find(function (log) { return log.bathroom.length > 0; });
+    var lastRoom = S.logs.find(function (log) { return !!log.room; });
     var latestGopin = S.logs.find(function (log) { return log.gopin.length > 0; });
-    var todayClean = S.logs.find(function (log) { return log.date === today && includesCleaning(log); });
-    var todayGopin = S.logs.find(function (log) { return log.date === today && log.gopin.length; });
-    var busyCleaners = todayClean ? todayClean.bathroom.concat(todayClean.room) : [];
-    var cleaners = avail.filter(function (p) { return !todayGopin || !todayGopin.gopin.includes(p.id); });
-    var gopin = avail.filter(function (p) { return !busyCleaners.includes(p.id); });
     var gopinCount = Math.ceil(avail.length / 2);
     return {
-      st: st, active: active, avail: avail, cleaners: cleaners, gopin: gopin, gopinCount: gopinCount,
+      st: st, active: active, avail: avail, gopinCount: gopinCount,
       latestClean: latestClean, latestGopin: latestGopin,
-      od: cleaners.length >= 3 ? computeOdds(cleaners, st, latestClean) : null,
-      pg: gopinCount && gopin.length >= gopinCount ? gopinOdds(gopin, gopinCount, st, latestGopin) : []
+      od: avail.length >= 3 ? computeOdds(avail, st, lastBath, lastRoom) : null,
+      pg: gopinCount ? gopinOdds(avail, gopinCount, st, latestGopin) : []
     };
   }
 
@@ -1805,11 +1797,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
   function oddsFor(p, d) {
     if (S.away.has(p.id)) return '<span class="muted small">Away, sits out this pick</span>';
-    var i = d.cleaners.indexOf(p), g = d.gopin.indexOf(p);
+    var i = d.avail.indexOf(p);
     return '<span class="odds">' +
-      oddBar('bath', 'Bath', d.od && i >= 0 ? d.od.pb[i] : 0) +
-      oddBar('room', 'Room', d.od && i >= 0 ? d.od.pr[i] : 0) +
-      oddBar('gopin', 'Gopin', g >= 0 && d.pg.length ? d.pg[g] : 0) + '</span>';
+      oddBar('bath', 'Bath', d.od ? d.od.pb[i] : 0) +
+      oddBar('room', 'Room', d.od ? d.od.pr[i] : 0) +
+      oddBar('gopin', 'Gopin', d.pg[i]) + '</span>';
   }
   function homeRow(p, d) {
     var home = !S.away.has(p.id);
@@ -1848,8 +1840,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     else if (S.readOnly) hint = "You can see the rota but can't change it.";
     else if (d.active.length < 3) hint = 'Add at least 3 housemates to start picking' + (d.active.length ? ' (' + (3 - d.active.length) + ' more).' : '.');
     else if (d.avail.length < 3) hint = 'At least 3 people need to be home to pick. Switch someone back on below.';
-    else if (!d.od) hint = 'Bathroom and Room need 3 people at home who aren’t assigned to Gopin today.';
-    else hint = 'Chooses 2 for Bathroom and 1 for Room from ' + d.cleaners.length + ' eligible housemates.';
+    else hint = 'Chooses 2 for Bathroom and 1 for Room from ' + d.avail.length + ' housemates at home.';
     $('pick-hint').textContent = hint;
 
     if (S.rolling !== 'gopin') {
@@ -1863,8 +1854,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var gopinHint = '';
     if (ready()) {
       if (!d.avail.length) gopinHint = 'Gopin needs at least one housemate at home.';
-      else if (!d.pg.length) gopinHint = 'Gopin needs ' + gopinSize + '. Only ' + d.gopin.length + ' are available after Bathroom and Room.';
-      else gopinHint = 'Chooses ' + gopinSize + ' out of ' + d.avail.length + ' at home. Today’s Bathroom and Room assignees sit out.';
+      else gopinHint = 'Chooses ' + gopinSize + ' out of ' + d.avail.length + ' at home, including today’s cleaners.';
     }
     $('gopin-hint').textContent = gopinHint;
 
@@ -2125,9 +2115,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (S.rolling || !canWrite()) return;
     var d = derive();
     if (!d.od) return;
-    var choice = sampleAssignment(d.cleaners, d.od);
+    var choice = sampleAssignment(d.avail, d.od);
     window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
-    recordPick('clean', d.cleaners, [
+    recordPick('clean', d.avail, [
       { id: 'bath-names', people: [choice.b1, choice.b2] },
       { id: 'room-names', people: [choice.r] }
     ], { bathroom: [choice.b1.id, choice.b2.id], room: choice.r.id });
@@ -2137,8 +2127,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (S.rolling || !canWrite()) return;
     var d = derive();
     if (!d.pg.length) return;
-    var people = sampleGopin(d.gopin, d.pg, d.gopinCount);
-    recordPick('gopin', d.gopin, [{ id: 'gopin-names', people: people }], {
+    var people = sampleGopin(d.avail, d.pg, d.gopinCount);
+    recordPick('gopin', d.avail, [{ id: 'gopin-names', people: people }], {
       gopin: people.map(function (person) { return person.id; })
     });
   }
@@ -2263,8 +2253,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     else if (cleaning && (!dr.b1 || !dr.r)) err = 'Choose at least one person for the bathroom and one for the room.';
     else if (!cleaning && !dr.g.length) err = 'Choose housemates for Bathroom and Room or for Gopin.';
     else {
-      var ids = [dr.b1, dr.b2, dr.r].concat(dr.g).filter(Boolean);
-      if (new Set(ids).size !== ids.length) err = 'Choose a different person for each assignment.';
+      var ids = [dr.b1, dr.b2, dr.r].filter(Boolean);
+      if (new Set(ids).size !== ids.length) err = 'Choose different people for the Bathroom and Room assignments.';
     }
     if (err) { S.logErr = err; render(); return; }
     var isNew = S.editingLog === 'new';
