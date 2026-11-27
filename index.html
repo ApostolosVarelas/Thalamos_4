@@ -247,6 +247,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     <label>Password <input id="sign-in-password" type="password" autocomplete="current-password" required></label>
     <button id="sign-in-btn" class="btn btn-primary" type="submit">Sign in</button>
     <button id="existing-account-btn" class="btn" type="submit" hidden>Sign in with an existing account</button>
+    <button id="resend-confirmation" class="btn btn-quiet" type="button" hidden>Resend confirmation email</button>
     <p id="sign-in-error" class="form-err" role="alert"></p>
   </form>
   <section id="invite-account" class="card sign-in" aria-label="Join Thalamos 4" hidden>
@@ -393,7 +394,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     view: 'pick',
     mode: 'loading',      // loading | shared | local | signed-out | unavailable
     cloud: false, accountId: null,
-    inviteToken: '',
+    inviteToken: '', resendConfirmation: false,
     gotPeople: false, gotLogs: false,
     stale: false, readOnly: false, notice: '',
     people: [], logs: [],
@@ -948,6 +949,20 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return invitation ? invitation[1] : '';
   }
 
+  function emailConfirmationNotice() {
+    var result = new URLSearchParams(location.hash.slice(1));
+    var confirmed = ['signup', 'email'].includes(result.get('type')) && result.has('access_token') && result.has('refresh_token');
+    var error = result.get('error_code');
+    if (!confirmed && !error) return '';
+    // Supabase has handled verification. Remove the callback credentials before loading app scripts.
+    var url = new URL(location.href);
+    url.hash = '';
+    history.replaceState(history.state, '', url.href);
+    if (confirmed) return 'Email confirmed. Reopen your invitation and choose “Sign in with an existing account”.';
+    if (error === 'otp_expired') return 'This confirmation link expired or was already used. Reopen your invitation to sign in or request a new email.';
+    return 'Could not confirm your email. Reopen your invitation to request a new confirmation email.';
+  }
+
   async function joinCurrentAccount() {
     if (!S.accountId || !S.inviteToken) return;
     var id = S.accountId;
@@ -965,6 +980,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   async function startCloud() {
     S.cloud = true;
     S.inviteToken = inviteFromHash();
+    var confirmation = emailConfirmationNotice();
+    S.notice = confirmation;
     render();
     try {
       if (new URL(SUPABASE_URL).protocol !== 'https:' || !SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) {
@@ -992,7 +1009,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.away.clear();
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
-          S.notice = '';
+          S.notice = confirmation;
+          confirmation = '';
+          S.resendConfirmation = false;
           S.logSaving = false;
           $('invite-url').value = '';
           $('invite-link').hidden = true;
@@ -1040,7 +1059,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       password.value = '';
       if (createAccount && !result.data.session) {
         redeemAfterSignIn = false;
-        $('sign-in-error').textContent = 'Check your email to confirm your account, then use this invitation to sign in.';
+        S.resendConfirmation = true;
+        $('sign-in-error').textContent = 'Check your email to confirm your account, then return to this invitation to sign in.';
       }
     } catch (error) {
       redeemAfterSignIn = false;
@@ -1049,12 +1069,35 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       else if (['user_already_exists', 'email_exists'].includes(error.code)) message = 'This email already has an account. Use “Sign in with an existing account”.';
       else if (error.code === 'weak_password') message = 'Choose a stronger password.';
       else if (error.code === 'invalid_credentials') message = 'Check your email and password.';
-      else if (error.code === 'email_not_confirmed') message = 'Confirm your email, then try again.';
+      else if (error.code === 'email_not_confirmed') {
+        S.resendConfirmation = true;
+        message = 'Confirm your email, then try again.';
+      }
       else if (error.code === 'email_address_not_authorized') message = 'Supabase could not send the confirmation email. Ask the household owner to check email delivery.';
       else if (error.code === 'signup_disabled') message = 'Ask a housemate to enable invite sign-ups in Supabase.';
       $('sign-in-error').textContent = message;
     } finally {
       button.disabled = existingButton.disabled = false;
+      render();
+    }
+  }
+
+  async function resendConfirmationEmail() {
+    var email = $('sign-in-email');
+    var button = $('resend-confirmation');
+    if (!cloudClient || !S.inviteToken || S.mode !== 'signed-out' || button.disabled || !email.reportValidity()) return;
+    button.disabled = true;
+    var message = $('sign-in-error');
+    try {
+      var result = await cloudClient.auth.resend({ type: 'signup', email: email.value.trim() });
+      if (result.error) throw result.error;
+      message.textContent = 'Confirmation email requested. Open the newest email, then return to this invitation to sign in.';
+    } catch (error) {
+      message.textContent = error.code === 'over_email_send_rate_limit'
+        ? 'You’ve reached the email limit. Wait a little before trying again.'
+        : 'Could not resend the confirmation email. Try again later.';
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -1156,6 +1199,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('sign-in-password').autocomplete = joining ? 'new-password' : 'current-password';
     $('join-hint').hidden = !joining;
     $('existing-account-btn').hidden = !joining;
+    $('resend-confirmation').hidden = !joining || !S.resendConfirmation;
     $('invite-account').hidden = !joining || !S.accountId;
     $('sign-out').hidden = !S.accountId || joining;
     $('invite-actions').hidden = !S.cloud || !canWrite();
@@ -1619,6 +1663,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         if (token !== S.inviteToken) {
           S.inviteToken = token;
           S.notice = '';
+          S.resendConfirmation = false;
           $('sign-in-error').textContent = '';
           if (!token) showView(viewFromHash());
           render();
@@ -1633,6 +1678,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('notice-close').addEventListener('click', function () { S.notice = ''; if (!S.cloud) S.stale = false; render(); });
     $('new-name').addEventListener('input', function () { setPeopleErr(''); });
     $('sign-out').addEventListener('click', signOut);
+    $('resend-confirmation').addEventListener('click', resendConfirmationEmail);
     $('join-current-account').addEventListener('click', joinCurrentAccount);
     $('invite-create-account').addEventListener('click', signOut);
     $('create-invite').addEventListener('click', createInvite);
