@@ -1,10 +1,21 @@
 -- Run in the SQL Editor after the shared database setup in supabase.sql.
 -- In Authentication > Hooks, add a Before User Created hook. Choose Postgres
--- and select public.thalamos_invite_signup to require an invitation for sign-up.
+-- and select public.thalamos_invite_signup for invitation sign-ups.
 -- In Authentication > Sign In / Providers, enable Allow new users to sign up.
 -- Set the Site URL to the published app in Authentication > URL Configuration.
 
 begin;
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'thalamos_house' and column_name = 'household_id'
+  ) then
+    raise exception 'This project already supports multiple households. Use supabase-households.sql.';
+  end if;
+end;
+$$;
 
 create table if not exists public.thalamos_invites (
   token_hash text primary key,

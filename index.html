@@ -109,6 +109,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .sign-in { display: grid; gap: 10px; }
 .sign-in label { display: grid; gap: 4px; }
 .sign-in .auth-mode { justify-self: center; }
+.onboarding { display: grid; gap: 14px; }
+#brand-name { overflow-wrap: anywhere; }
 #sign-out { margin-bottom: 10px; }
 .data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .invite-link { display: grid; gap: 8px; margin-top: 12px; }
@@ -230,7 +232,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 <header class="top">
   <div class="brand">
     <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-    <h1>Thalamos 4</h1>
+    <h1 id="brand-name">Thalamos 4</h1>
   </div>
   <span id="sync" class="sync" role="status">Connecting…</span>
 </header>
@@ -244,9 +246,6 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   <form id="sign-in" class="card sign-in" hidden>
     <h2 id="sign-in-heading" tabindex="-1">Sign in to Thalamos 4</h2>
     <p id="join-hint" class="hint" hidden></p>
-    <label id="signup-invite-field" hidden>Invitation link
-      <input id="signup-invite" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the link a housemate sent you" disabled>
-    </label>
     <label>Email <input id="sign-in-email" type="email" autocomplete="username" required></label>
     <label>Password <input id="sign-in-password" type="password" autocomplete="current-password" required></label>
     <button id="sign-in-btn" class="btn btn-primary" type="submit">Sign in</button>
@@ -254,13 +253,28 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     <button id="resend-confirmation" class="btn btn-quiet" type="button" hidden>Resend confirmation email</button>
     <p id="sign-in-error" class="form-err" role="alert"></p>
   </form>
-  <section id="invite-account" class="card sign-in" aria-label="Join Thalamos 4" hidden>
-    <h2>Join Thalamos 4</h2>
+  <section id="invite-account" class="card sign-in" aria-label="Join a household" hidden>
+    <h2>Join a household</h2>
     <p class="hint">Use the account signed in on this device, or create your own.</p>
     <button id="join-current-account" class="btn" type="button">Join with this account</button>
     <button id="invite-create-account" class="btn btn-primary" type="button">Create account</button>
   </section>
   <button id="sign-out" class="btn btn-quiet" type="button" hidden>Sign out</button>
+
+  <section id="household-setup" class="onboarding" aria-label="Household setup" hidden>
+    <form id="create-household" class="card sign-in">
+      <h2>Create a household</h2>
+      <label>Household name <input id="household-name" type="text" maxlength="60" required></label>
+      <button id="create-household-btn" class="btn btn-primary" type="submit">Create household</button>
+    </form>
+    <form id="join-household" class="card sign-in">
+      <h2>Join a household</h2>
+      <label>Invitation link
+        <input id="household-invite" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the link a housemate sent you" required>
+      </label>
+      <button id="join-household-btn" class="btn" type="submit">Join household</button>
+    </form>
+  </section>
 
   <section id="view-pick" class="view" aria-label="Pick">
     <div class="card pick">
@@ -388,8 +402,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var LS_KEY = 'thalamos4-chores-v1';
   var LOG_PAGE = 15;
   var VIEWS = ['pick', 'house', 'log'];
-  var NO_HOUSE_ACCESS = 'This account does not have access to the shared house.';
   var INVALID_INVITATION = 'This invitation is invalid, expired, or already used.';
+  var ALREADY_IN_HOUSEHOLD = 'You already belong to a different household.';
   var CONFIRMED_SIGN_IN = 'Email confirmed. You’re signed in.';
   var INVITE_TOKEN = /^[0-9a-f]{32}$/;
   var SUPABASE_URL = 'https://qfwkwoamkjgwxhmjrkyw.supabase.co';
@@ -397,8 +411,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   var S = {
     view: 'pick',
-    mode: 'loading',      // loading | shared | local | signed-out | unavailable
+    mode: 'loading',      // loading | shared | local | signed-out | onboarding | unavailable
     cloud: false, accountId: null,
+    householdId: null, householdName: '', householdBusy: false,
     inviteToken: '', authView: 'signin', resendConfirmation: false,
     gotPeople: false, gotLogs: false,
     stale: false, readOnly: false, notice: '',
@@ -779,7 +794,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   function readCloudHouse(client) {
-    var query = client.from('thalamos_house').select('revision, people, logs').eq('id', true);
+    var query = client.from('thalamos_house').select('household_id, name, revision, people, logs');
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       query = query.abortSignal(AbortSignal.timeout(12000));
     }
@@ -790,8 +805,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var active = true, revision = -1, readNumber = 0;
 
     function applyHouse(house) {
-      if (!active || house.revision < revision) return;
-      if (house.revision !== revision || !ready()) {
+      var changedHousehold = S.householdId !== house.household_id;
+      if (!active || (!changedHousehold && house.revision < revision)) return;
+      if (changedHousehold || house.revision !== revision || !ready()) {
+        if (changedHousehold) S.away.clear();
+        S.householdId = house.household_id;
+        S.householdName = house.name;
         S.people = normPeople(recordRows(house.people));
         S.logs = normLogs(recordRows(house.logs));
         S.gotPeople = S.gotLogs = true;
@@ -801,7 +820,6 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       }
       S.mode = 'shared';
       S.stale = false;
-      if (S.notice === NO_HOUSE_ACCESS) S.notice = '';
       render();
     }
 
@@ -814,16 +832,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         if (!active || request !== readNumber) return;
         if (result.error) throw result.error;
         if (!result.data) {
-          S.mode = 'unavailable';
+          S.mode = 'onboarding';
+          S.householdId = null;
+          S.householdName = '';
+          revision = -1;
           S.people = [];
           S.logs = [];
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
-          if (S.notice === CONFIRMED_SIGN_IN) {
-            S.notice = 'Email confirmed. Open the original invitation and choose “Join with this account”.';
-          } else if (!S.notice && !S.inviteToken) {
-            S.notice = NO_HOUSE_ACCESS;
-          }
           render();
           return;
         }
@@ -927,23 +943,28 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
-  async function redeemInvite(id) {
-    var token = S.inviteToken;
+  async function redeemInvite(id, pastedToken) {
+    var token = pastedToken || S.inviteToken;
     if (!token) return false;
     try {
       var result = await cloudClient.rpc('thalamos_redeem_invite', { p_token: token });
       if (result.error) throw result.error;
-      if (S.accountId !== id || S.inviteToken !== token) return false;
+      if (S.accountId !== id || (!pastedToken && S.inviteToken !== token)) return false;
       if (result.data === 'invalid') {
         S.notice = INVALID_INVITATION;
         return false;
       }
+      if (result.data === 'already_member') {
+        openHouseAfterJoin();
+        S.notice = ALREADY_IN_HOUSEHOLD;
+        return false;
+      }
       if (result.data !== 'joined' && result.data !== 'member') throw new Error('Invalid invitation response');
       openHouseAfterJoin();
-      if (result.data === 'joined') S.notice = 'You’ve joined Thalamos 4.';
+      if (result.data === 'joined') S.notice = 'You’ve joined the household.';
       return true;
     } catch (error) {
-      if (S.accountId === id && S.inviteToken === token) S.notice = 'Could not accept this invitation. Try again.';
+      if (S.accountId === id && (pastedToken || S.inviteToken === token)) S.notice = 'Could not accept this invitation. Try again.';
       return false;
     }
   }
@@ -953,22 +974,47 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return invitation ? invitation[1] : '';
   }
 
-  function applyPastedInvite() {
-    var input = $('signup-invite');
+  function readInviteLink(value) {
     try {
-      var link = new URL(input.value.trim());
+      var link = new URL(value.trim());
       var site = new URL(confirmationDestination());
-      if (link.origin !== site.origin || ![site.pathname, site.pathname + 'index.html'].includes(link.pathname)) return false;
-      var token = inviteFromHash(link.hash);
-      if (!token) return false;
-      site.searchParams.set('join', '1');
-      site.hash = 'invite=' + token;
-      history.replaceState(history.state, '', site.href);
-      S.inviteToken = token;
-      input.value = '';
-      return true;
+      if (link.origin !== site.origin || ![site.pathname, site.pathname + 'index.html'].includes(link.pathname)) return '';
+      return inviteFromHash(link.hash);
     } catch (error) {
-      return false;
+      return '';
+    }
+  }
+
+  async function setUpHousehold(create) {
+    if (S.mode !== 'onboarding' || !S.accountId || S.householdBusy || S.inviteToken) return;
+    var id = S.accountId;
+    var input = $(create ? 'household-name' : 'household-invite');
+    var value = create ? input.value.trim() : readInviteLink(input.value);
+    if (!value) {
+      S.notice = create ? 'Enter a name for your household.' : 'Paste a valid Thalamos 4 invitation link.';
+      render();
+      input.focus();
+      return;
+    }
+    S.householdBusy = true;
+    S.notice = '';
+    render();
+    try {
+      if (create) {
+        var result = await cloudClient.rpc('thalamos_create_household', { p_name: value });
+        if (result.error) throw result.error;
+        if (S.accountId !== id) return;
+        openHouseAfterJoin();
+      } else if (!await redeemInvite(id, value)) {
+        return;
+      }
+      if (S.accountId !== id) return;
+      input.value = '';
+      if (cloudWatch) await cloudWatch.refresh();
+    } catch (error) {
+      if (S.accountId === id) S.notice = 'Could not create your household. Try again.';
+    } finally {
+      if (S.accountId === id) { S.householdBusy = false; render(); }
     }
   }
 
@@ -993,8 +1039,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     history.replaceState(history.state, '', url.href);
     if (confirmed) return { tokens: { access_token: access, refresh_token: refresh } };
     return { message: error === 'otp_expired'
-      ? 'This confirmation link expired or was already used. Reopen your invitation to sign in or request a new email.'
-      : 'Could not confirm your email. Reopen your invitation to request a new confirmation email.' };
+      ? 'This confirmation link expired or was already used. Sign in to request a new email.'
+      : 'Could not confirm your email. Sign in to request a new confirmation email.' };
   }
 
   function confirmationDestination() {
@@ -1007,11 +1053,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (result.error) throw result.error;
       if (S.accountId !== id) return;
       if (result.data === 'joined' || confirmed) openHouseAfterJoin();
-      if (result.data === 'joined') S.notice = 'Email confirmed. You’ve joined Thalamos 4.';
+      if (result.data === 'joined') S.notice = 'Email confirmed. You’ve joined the household.';
       else if (result.data === 'invalid') S.notice = INVALID_INVITATION;
+      else if (result.data === 'already_member') S.notice = ALREADY_IN_HOUSEHOLD;
     } catch (error) {
       if (S.accountId === id && confirmed) {
-        S.notice = 'You’re signed in. Reopen the invitation and choose “Join with this account” to finish joining.';
+        S.notice = 'You’re signed in. If you received an invitation, use it to finish joining.';
       }
     }
   }
@@ -1038,6 +1085,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     backend = null;
     S.accountId = id;
     S.mode = id ? 'loading' : 'signed-out';
+    S.householdId = null;
+    S.householdName = '';
+    S.householdBusy = false;
     if (id) S.authView = 'signin';
     S.people = [];
     S.logs = [];
@@ -1052,6 +1102,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     setInviteStatus('');
     S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
     $('new-name').value = '';
+    $('household-name').value = '';
+    $('household-invite').value = '';
     setPeopleErr('');
     render();
     if (id) {
@@ -1091,7 +1143,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           await setCloudAccount(result.data.session, true);
           needsSignIn = false;
         } catch (error) {
-          S.notice = 'Could not finish signing in. Reopen your invitation and sign in with the account you created.';
+          S.notice = 'Could not finish signing in. Sign in with the account you created.';
         }
       }
       if (needsSignIn) {
@@ -1127,11 +1179,6 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (!cloudClient || S.mode !== 'signed-out' || button.disabled) return;
     var createAccount = S.authView === 'signup';
     $('sign-in-error').textContent = '';
-    if (createAccount && !S.inviteToken && !applyPastedInvite()) {
-      $('sign-in-error').textContent = 'Paste a valid Thalamos 4 invitation link.';
-      $('signup-invite').focus();
-      return;
-    }
     button.disabled = modeButton.disabled = true;
     render();
     redeemAfterSignIn = !!S.inviteToken;
@@ -1140,10 +1187,13 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var credentials = { email: $('sign-in-email').value.trim(), password: password.value };
       var result;
       if (createAccount) {
-        // The Auth hook gets a hash for validating signup. Only the link holds the token used to join.
-        var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(S.inviteToken));
-        var hash = Array.from(new Uint8Array(digest), function (n) { return n.toString(16).padStart(2, '0'); }).join('');
-        credentials.options = { data: { thalamos_invite_hash: hash }, emailRedirectTo: confirmationDestination() };
+        credentials.options = { emailRedirectTo: confirmationDestination() };
+        if (S.inviteToken) {
+          // The Auth hook binds a signup to the invitation hash and the identity being created.
+          var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(S.inviteToken));
+          var hash = Array.from(new Uint8Array(digest), function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+          credentials.options.data = { thalamos_invite_hash: hash };
+        }
         result = await cloudClient.auth.signUp(credentials);
       } else {
         result = await cloudClient.auth.signInWithPassword(credentials);
@@ -1167,7 +1217,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         message = 'Confirm your email, then try again.';
       }
       else if (error.code === 'email_address_not_authorized') message = 'Supabase could not send the confirmation email. Ask the household owner to check email delivery.';
-      else if (error.code === 'signup_disabled') message = 'Ask a housemate to enable invite sign-ups in Supabase.';
+      else if (error.code === 'signup_disabled') message = 'Account creation is currently disabled.';
       $('sign-in-error').textContent = message;
     } finally {
       button.disabled = modeButton.disabled = false;
@@ -1178,7 +1228,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   async function resendConfirmationEmail() {
     var email = $('sign-in-email');
     var button = $('resend-confirmation');
-    if (!cloudClient || !S.inviteToken || S.mode !== 'signed-out' || button.disabled || !email.reportValidity()) return;
+    if (!cloudClient || S.mode !== 'signed-out' || button.disabled || !email.reportValidity()) return;
     button.disabled = true;
     var message = $('sign-in-error');
     try {
@@ -1271,6 +1321,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     else if (S.mode === 'signed-out') { text = 'Sign in required'; }
     else if (S.mode === 'unavailable') { cls = 'bad'; text = 'Not connected'; }
     else if (S.cloud && S.stale) { cls = 'warn'; text = 'Reconnecting…'; }
+    else if (S.mode === 'onboarding') { text = 'Signed in'; }
     else if (S.mode === 'shared') {
       if (S.stale) { cls = 'warn'; text = 'Reconnecting…'; }
       else if (!ready()) { text = 'Connecting…'; }
@@ -1278,6 +1329,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       else { cls = 'ok'; text = 'Shared with the house'; }
     }
     var s = $('sync');
+    $('brand-name').textContent = S.householdName || 'Thalamos 4';
     s.className = 'sync' + (cls ? ' ' + cls : '');
     s.textContent = text;
     var incompleteInvite = S.cloud && !S.inviteToken && /(?:^|[?&])join=1(?:&|$)/.test(location.search);
@@ -1298,12 +1350,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('sign-in-password').autocomplete = creating ? 'new-password' : 'current-password';
     $('join-hint').textContent = creating ? 'We’ll send a link to verify your email.' : 'Sign in to join the household.';
     $('join-hint').hidden = !creating && !joining;
-    var needsInvite = creating && !joining;
-    $('signup-invite-field').hidden = !needsInvite;
-    $('signup-invite').disabled = !needsInvite;
-    $('signup-invite').required = needsInvite;
-    $('resend-confirmation').hidden = !joining || !S.resendConfirmation;
+    $('resend-confirmation').hidden = !S.resendConfirmation;
     $('invite-account').hidden = !joining || !S.accountId;
+    $('household-setup').hidden = S.mode !== 'onboarding' || joining;
+    $('create-household-btn').disabled = S.householdBusy;
+    $('join-household-btn').disabled = S.householdBusy;
     $('sign-out').hidden = !S.accountId || joining;
     $('invite-actions').hidden = !S.cloud || !canWrite();
     $('data-actions').hidden = !ready() || S.stale;
@@ -1746,6 +1797,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       else if (f.id === 'sign-in') {
         e.preventDefault();
         signIn();
+      }
+      else if (f.id === 'create-household' || f.id === 'join-household') {
+        e.preventDefault();
+        setUpHousehold(f.id === 'create-household');
       }
       else if (f.id === 'log-form') { e.preventDefault(); saveLog(); }
       else if (f.classList.contains('person-form')) { e.preventDefault(); savePersonName(f.getAttribute('data-id')); }

@@ -1,9 +1,20 @@
--- Run this file in the SQL Editor of a Supabase project you control.
+-- For a fresh project run this, then supabase-invites.sql, then supabase-households.sql.
 -- In Authentication > Users, create an email/password user for each housemate.
 -- Confirm those accounts and grant access using the example at the end of this file.
 -- Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in index.html before publishing.
 
 begin;
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'thalamos_house' and column_name = 'household_id'
+  ) then
+    raise exception 'This project already supports multiple households. Use supabase-households.sql.';
+  end if;
+end;
+$$;
 
 create table if not exists public.thalamos_members (
   user_id uuid primary key references auth.users (id) on delete cascade
