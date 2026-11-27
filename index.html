@@ -220,6 +220,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .chip.bath { background: var(--bath-soft); color: var(--bath); }
 .chip.room { background: var(--room-soft); color: var(--room); }
 .chip.gopin { background: var(--gopin-soft); color: var(--gopin); }
+.chip.inside { background: var(--sunk); color: var(--ink); }
 .chip.gone { font-style: italic; }
 .e-note { grid-column: 1 / -1; color: var(--muted); font-size: .88rem; overflow-wrap: break-word; min-width: 0; }
 .e-note:empty { display: none; }
@@ -577,7 +578,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       };
     }).sort(function (a, b) { return a.name.localeCompare(b.name); });
   }
-  function gopinIds(value) {
+  function personIds(value) {
     var ids = Array.isArray(value) ? value : [value];
     return Array.from(new Set(ids.filter(function (id) { return typeof id === 'string' && id; })));
   }
@@ -589,7 +590,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         date: typeof l.date === 'string' ? l.date : '',
         bathroom: Array.isArray(l.bathroom) ? l.bathroom.filter(function (x) { return typeof x === 'string' && x; }).slice(0, 2) : [],
         room: typeof l.room === 'string' ? l.room : '',
-        gopin: gopinIds(l.gopin),
+        gopin: personIds(l.gopin),
+        gopinHome: Array.isArray(l.gopinHome) ? personIds(l.gopinHome) : null,
         note: typeof l.note === 'string' ? l.note : '',
         source: l.source === 'pick' ? 'pick' : 'manual',
         createdAt: num(l.createdAt)
@@ -597,6 +599,19 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }).sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? 1 : -1;
       return b.createdAt - a.createdAt;
+    });
+  }
+
+  function cleaningInside(log) {
+    return log.gopin.length && log.gopinHome
+      ? log.gopinHome.filter(function (id) { return !log.gopin.includes(id); })
+      : null;
+  }
+
+  function hasLogHistory(id) {
+    return S.logs.some(function (log) {
+      return log.bathroom.includes(id) || log.room === id || log.gopin.includes(id) ||
+        (log.gopin.length && log.gopinHome && log.gopinHome.includes(id));
     });
   }
 
@@ -816,11 +831,19 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     'bathroom_1_id', 'bathroom_1_name', 'bathroom_2_id', 'bathroom_2_name',
     'room_id', 'room_name', 'note', 'source', 'created_at'];
   var CSV_SINGLE_GOPIN_FIELDS = CSV_LEGACY_FIELDS.concat('gopin_id', 'gopin_name');
-  var CSV_FIELDS = CSV_LEGACY_FIELDS.concat('gopin_ids', 'gopin_names');
+  var CSV_GROUP_GOPIN_FIELDS = CSV_LEGACY_FIELDS.concat('gopin_ids', 'gopin_names');
+  var CSV_FIELDS = CSV_GROUP_GOPIN_FIELDS.concat('gopin_home_ids', 'cleaning_inside_names');
   var CSV_TEXT_PREFIX = /^(?:'|[\t\r\n]|\s*[=+@-])/;
 
   function csvText(value) { return CSV_TEXT_PREFIX.test(value) ? "'" + value : value; }
   function fromCSVText(value) { return value[0] === "'" && CSV_TEXT_PREFIX.test(value.slice(1)) ? value.slice(1) : value; }
+  function readCSVIds(value) {
+    var ids = JSON.parse(value);
+    if (!Array.isArray(ids) || ids.some(function (id) { return typeof id !== 'string' || !id; })) {
+      throw new Error('Invalid housemate list');
+    }
+    return personIds(ids);
+  }
 
   function writeBackupCSV(data) {
     var people = normPeople(recordRows(data.people));
@@ -829,13 +852,16 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       return { record_type: 'housemate', id: p.id, name: csvText(p.name), active: p.active,
         base_bath: p.baseBath, base_room: p.baseRoom, created_at: p.createdAt };
     }).concat(normLogs(recordRows(data.logs)).map(function (l) {
+      var inside = cleaningInside(l);
       return { record_type: 'log', id: l.id, date: csvText(l.date),
         bathroom_1_id: l.bathroom[0], bathroom_1_name: csvText(names.get(l.bathroom[0]) || ''),
         bathroom_2_id: l.bathroom[1], bathroom_2_name: csvText(names.get(l.bathroom[1]) || ''),
         room_id: l.room, room_name: csvText(names.get(l.room) || ''), note: csvText(l.note),
         source: l.source, created_at: l.createdAt,
         gopin_ids: l.gopin.length ? JSON.stringify(l.gopin) : '',
-        gopin_names: csvText(l.gopin.map(function (id) { return names.get(id) || ''; }).join(', ')) };
+        gopin_names: csvText(l.gopin.map(function (id) { return names.get(id) || ''; }).join(', ')),
+        gopin_home_ids: l.gopinHome ? JSON.stringify(l.gopinHome) : '',
+        cleaning_inside_names: csvText((inside || []).map(function (id) { return names.get(id) || ''; }).join(', ')) };
     }));
     var lines = records.map(function (record) {
       return CSV_FIELDS.map(function (field) {
@@ -862,7 +888,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       }
     }
     var header = rows.shift();
-    var fields = header && [CSV_FIELDS, CSV_SINGLE_GOPIN_FIELDS, CSV_LEGACY_FIELDS].find(function (format) {
+    var fields = header && [CSV_FIELDS, CSV_GROUP_GOPIN_FIELDS, CSV_SINGLE_GOPIN_FIELDS, CSV_LEGACY_FIELDS].find(function (format) {
       return format.length === header.length && format.every(function (field, i) { return field === header[i]; });
     });
     if (!fields) throw new Error('Invalid backup header');
@@ -876,13 +902,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           baseBath: num(record.base_bath), baseRoom: num(record.base_room), createdAt: num(record.created_at) };
       } else if (record.record_type === 'log') {
         if (Object.hasOwn(backup.logs, record.id)) throw new Error('Duplicate log row');
-        var gopin = record.gopin_ids ? JSON.parse(record.gopin_ids) : gopinIds(fromCSVText(record.gopin_id || ''));
-        if (!Array.isArray(gopin) || gopin.some(function (id) { return typeof id !== 'string' || !id; })) {
-          throw new Error('Invalid Gopin assignment');
-        }
+        var gopin = record.gopin_ids ? readCSVIds(record.gopin_ids) : personIds(fromCSVText(record.gopin_id || ''));
         backup.logs[record.id] = { date: fromCSVText(record.date),
           bathroom: [record.bathroom_1_id, record.bathroom_2_id].filter(Boolean), room: record.room_id,
-          gopin: gopinIds(gopin), note: fromCSVText(record.note), source: record.source, createdAt: num(record.created_at) };
+          gopin: gopin, gopinHome: record.gopin_home_ids ? readCSVIds(record.gopin_home_ids) : null,
+          note: fromCSVText(record.note), source: record.source, createdAt: num(record.created_at) };
       } else {
         throw new Error('Invalid backup record type');
       }
@@ -1887,13 +1911,13 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
   function personRow(p, d, w) {
     var s = d.st[p.id];
-    if (w && S.editingPerson === p.id) return personForm(p, s);
+    if (w && S.editingPerson === p.id) return personForm(p);
     return '<li class="person"><div class="p-main"><div class="p-name">' + esc(p.name) + '</div><div class="p-meta">' + esc(metaText(s)) + '</div></div>' +
       (w ? '<button class="btn btn-quiet" type="button" id="b-editp-' + esc(p.id) + '" data-act="edit-person" data-id="' + esc(p.id) + '">Edit</button>' : '') +
       '</li>';
   }
-  function personForm(p, s) {
-    var hasLogs = s.bath + s.room + s.gopin > 0;
+  function personForm(p) {
+    var hasLogs = hasLogHistory(p.id);
     return '<li class="person editing"><form class="person-form" data-id="' + esc(p.id) + '">' +
       '<label class="sr" for="pn-' + esc(p.id) + '">Name</label>' +
       '<input type="text" id="pn-' + esc(p.id) + '" data-pdraft maxlength="40" autocapitalize="words" enterkeyhint="done" value="' + esc(S.personDraft) + '">' +
@@ -1909,7 +1933,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       '</form></li>';
   }
   function movedRow(p, d, w) {
-    var s = d.st[p.id], hasLogs = s.bath + s.room + s.gopin > 0;
+    var s = d.st[p.id], hasLogs = hasLogHistory(p.id);
     return '<li class="person"><div class="p-main"><div class="p-name">' + esc(p.name) + '</div><div class="p-meta">' + esc(metaText(s)) + '</div></div>' +
       '<div class="row-acts">' + (w
         ? '<button class="btn btn-quiet" type="button" id="b-back-' + esc(p.id) + '" data-act="move-back" data-id="' + esc(p.id) + '">Moved back</button>' + (hasLogs ? '' : delBtn('person', p.id))
@@ -2012,6 +2036,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   function entryRow(l, w) {
     var bath = l.bathroom.length ? l.bathroom.map(function (id) { return chip('bath', id); }).join('') : '<span class="muted">Nobody</span>';
     var room = l.room ? chip('room', l.room) : '<span class="muted">Nobody</span>';
+    var inside = cleaningInside(l);
     return '<li class="entry">' +
       '<span class="e-date">' + esc(fmtDate(l.date)) + (l.source === 'manual' ? '<small>added by hand</small>' : '') + '</span>' +
       '<span class="e-acts">' + (w
@@ -2021,6 +2046,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         '<span class="e-job"><span class="lbl">Room</span><span class="chips">' + room + '</span></span>' : '') +
       (l.gopin.length ? '<span class="e-job"><span class="lbl">Gopin</span><span class="chips">' +
         l.gopin.map(function (id) { return chip('gopin', id); }).join('') + '</span></span>' : '') +
+      (inside ? '<span class="e-job"><span class="lbl">Cleaning inside</span><span class="chips">' +
+        (inside.length ? inside.map(function (id) { return chip('inside', id); }).join('') : '<span class="muted">Nobody</span>') +
+        '</span></span>' : '') +
       '<span class="e-note">' + esc(l.note) + '</span>' +
       '</li>';
   }
@@ -2129,7 +2157,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (!d.pg.length) return;
     var people = sampleGopin(d.avail, d.pg, d.gopinCount);
     recordPick('gopin', d.avail, [{ id: 'gopin-names', people: people }], {
-      gopin: people.map(function (person) { return person.id; })
+      gopin: people.map(function (person) { return person.id; }),
+      gopinHome: d.avail.map(function (person) { return person.id; })
     });
   }
 
@@ -2197,8 +2226,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var key = 'person:' + id;
     if (S.armed !== key) { arm(key); return; }
     S.armed = null;
-    var s = computeStats()[id];
-    if (s && s.bath + s.room + s.gopin > 0) { render(); return; }
+    if (hasLogHistory(id)) { render(); return; }
     S.editingPerson = null;
     S.away.delete(id);
     write(function () { return backend.delPerson(id); });
@@ -2265,6 +2293,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       bathroom: [dr.b1, dr.b2].filter(Boolean),
       room: dr.r,
       gopin: dr.g,
+      gopinHome: dr.g.length && prev ? prev.gopinHome : null,
       note: dr.note.trim().slice(0, 140),
       source: prev ? prev.source : 'manual',
       createdAt: prev ? prev.createdAt : Date.now()
@@ -2287,7 +2316,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (DRAFT_FIELDS[t.id] && S.draft) { S.draft[DRAFT_FIELDS[t.id]] = t.value; return; }
     if (e.type === 'change' && S.draft && t.dataset && t.dataset.gopin) {
       var id = t.dataset.gopin;
-      S.draft.g = t.checked ? gopinIds(S.draft.g.concat(id)) : S.draft.g.filter(function (entry) { return entry !== id; });
+      S.draft.g = t.checked ? personIds(S.draft.g.concat(id)) : S.draft.g.filter(function (entry) { return entry !== id; });
       return;
     }
     if (t.hasAttribute && t.hasAttribute('data-pdraft')) { S.personDraft = t.value; return; }
