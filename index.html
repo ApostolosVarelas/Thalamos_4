@@ -228,6 +228,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .log-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: end; padding: 14px; background: var(--sunk); border: 1px solid var(--line); border-radius: 14px; }
 .f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .f label { font-size: .78rem; font-weight: 600; color: var(--muted); }
+.gopin-options { margin: 0; padding: 0; border: 0; min-width: 0; }
+.gopin-options legend { padding: 0; font-size: .78rem; font-weight: 600; color: var(--muted); }
+.gopin-options label { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.gopin-options input { width: 18px; height: 18px; accent-color: var(--gopin); flex: none; }
 .f-wide, .f-acts, .log-form .form-err { grid-column: 1 / -1; }
 .f-acts { display: flex; gap: 8px; }
 .f-acts .btn { flex: 1; }
@@ -365,7 +369,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       <summary>How the picker chooses</summary>
       <ul>
         <li>Bathroom, Room, and Gopin each use their own assignment history. The fewer times you have done a job, the bigger your chance of getting it.</li>
-        <li>For every time you are ahead of whoever has done a job least, your chance of that job drops to less than half.</li>
+        <li>Each previous assignment reduces a housemate’s weight for that job.</li>
         <li>If you did a job last time, you are much less likely to get it again. Anyone who cleaned last time also gets a smaller break on the other job.</li>
         <li>It is still a random draw. The bars under each name show their real chances for the next pick.</li>
         <li>New housemates and returning housemates start at the house average for Bathroom and Room.</li>
@@ -574,6 +578,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       };
     }).sort(function (a, b) { return a.name.localeCompare(b.name); });
   }
+  function gopinIds(value) {
+    var ids = Array.isArray(value) ? value : [value];
+    return Array.from(new Set(ids.filter(function (id) { return typeof id === 'string' && id; })));
+  }
+
   function normLogs(arr) {
     return arr.map(function (l) {
       return {
@@ -581,7 +590,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         date: typeof l.date === 'string' ? l.date : '',
         bathroom: Array.isArray(l.bathroom) ? l.bathroom.filter(function (x) { return typeof x === 'string' && x; }).slice(0, 2) : [],
         room: typeof l.room === 'string' ? l.room : '',
-        gopin: typeof l.gopin === 'string' ? l.gopin : '',
+        gopin: gopinIds(l.gopin),
         note: typeof l.note === 'string' ? l.note : '',
         source: l.source === 'pick' ? 'pick' : 'manual',
         createdAt: num(l.createdAt)
@@ -599,7 +608,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     S.logs.forEach(function (l) { // newest first, so the first date seen is the latest
       l.bathroom.forEach(function (id) { var s = st[id]; if (s) { s.bath++; if (!s.last) s.last = l.date; } });
       var r = st[l.room]; if (r) { r.room++; if (!r.last) r.last = l.date; }
-      var g = st[l.gopin]; if (g) { g.gopin++; if (!g.last) g.last = l.date; }
+      l.gopin.forEach(function (id) { var s = st[id]; if (s) { s.gopin++; if (!s.last) s.last = l.date; } });
     });
     return st;
   }
@@ -651,14 +660,59 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (Math.random() < 0.5) b.reverse();
     return { b1: b[0], b2: b[1], r: avail[pick[2]] };
   }
-  function gopinOdds(avail, st, last) {
-    var scores = avail.map(function (p) {
-      return -K * st[p.id].gopin + (last && p.id === last.gopin ? Math.log(SAME_AGAIN) : 0);
+  function gopinOdds(avail, slots, st, last) {
+    var previous = new Set(last ? last.gopin : []);
+    var candidates = avail.map(function (p, index) {
+      var score = -K * st[p.id].gopin + (previous.has(p.id) ? Math.log(SAME_AGAIN) : 0);
+      return { index: index, score: score };
+    }).sort(function (a, b) { return b.score - a.score; });
+    var odds = new Array(candidates.length).fill(0);
+    var relativeTotals = new Array(candidates.length);
+    var n = candidates.length;
+    relativeTotals[n - 1] = 1;
+    for (var i = n - 2; i >= 0; i--) {
+      relativeTotals[i] = 1 + Math.exp(candidates[i + 1].score - candidates[i].score) * relativeTotals[i + 1];
+    }
+    // Scale weights to the number of places, giving each person at most one place.
+    for (var j = 0; j < n && slots > 0; j++) {
+      var scale = slots / relativeTotals[j];
+      if (scale >= 1) {
+        odds[candidates[j].index] = 1;
+        slots--;
+      } else {
+        for (var k = j; k < n; k++) {
+          odds[candidates[k].index] = scale * Math.exp(candidates[k].score - candidates[j].score);
+        }
+        break;
+      }
+    }
+    return odds;
+  }
+
+  function sampleGopin(eligible, odds, count) {
+    var candidates = eligible.map(function (person, index) {
+      return { person: person, chance: odds[index] };
     });
-    var maxScore = Math.max.apply(null, scores);
-    var weights = scores.map(function (score) { return Math.exp(score - maxScore); });
-    var total = weights.reduce(function (sum, weight) { return sum + weight; }, 0);
-    return weights.map(function (weight) { return weight / total; });
+    for (var i = candidates.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var candidate = candidates[i];
+      candidates[i] = candidates[j];
+      candidates[j] = candidate;
+    }
+    // Each chance occupies part of the number line. One random offset selects the group.
+    var threshold = Math.random(), total = 0, picked = [], reserve = null;
+    candidates.forEach(function (candidate) {
+      total += candidate.chance;
+      if (threshold < total && picked.length < count) {
+        picked.push(candidate.person);
+        threshold++;
+      } else if (!reserve || candidate.chance > reserve.chance) {
+        reserve = candidate;
+      }
+    });
+    // Floating point rounding can leave the final threshold just past the total.
+    if (picked.length < count && reserve) picked.push(reserve.person);
+    return picked;
   }
 
   function includesCleaning(log) { return log.bathroom.length > 0 || !!log.room; }
@@ -669,17 +723,18 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var avail = active.filter(function (p) { return !S.away.has(p.id); });
     var today = todayISO();
     var latestClean = S.logs.find(includesCleaning);
-    var latestGopin = S.logs.find(function (log) { return !!log.gopin; });
+    var latestGopin = S.logs.find(function (log) { return log.gopin.length > 0; });
     var todayClean = S.logs.find(function (log) { return log.date === today && includesCleaning(log); });
-    var todayGopin = S.logs.find(function (log) { return log.date === today && log.gopin; });
+    var todayGopin = S.logs.find(function (log) { return log.date === today && log.gopin.length; });
     var busyCleaners = todayClean ? todayClean.bathroom.concat(todayClean.room) : [];
-    var cleaners = avail.filter(function (p) { return !todayGopin || p.id !== todayGopin.gopin; });
+    var cleaners = avail.filter(function (p) { return !todayGopin || !todayGopin.gopin.includes(p.id); });
     var gopin = avail.filter(function (p) { return !busyCleaners.includes(p.id); });
+    var gopinCount = Math.ceil(avail.length / 2);
     return {
-      st: st, active: active, avail: avail, cleaners: cleaners, gopin: gopin,
+      st: st, active: active, avail: avail, cleaners: cleaners, gopin: gopin, gopinCount: gopinCount,
       latestClean: latestClean, latestGopin: latestGopin,
       od: cleaners.length >= 3 ? computeOdds(cleaners, st, latestClean) : null,
-      pg: gopin.length ? gopinOdds(gopin, st, latestGopin) : []
+      pg: gopinCount && gopin.length >= gopinCount ? gopinOdds(gopin, gopinCount, st, latestGopin) : []
     };
   }
 
@@ -768,7 +823,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var CSV_LEGACY_FIELDS = ['record_type', 'id', 'name', 'active', 'base_bath', 'base_room', 'date',
     'bathroom_1_id', 'bathroom_1_name', 'bathroom_2_id', 'bathroom_2_name',
     'room_id', 'room_name', 'note', 'source', 'created_at'];
-  var CSV_FIELDS = CSV_LEGACY_FIELDS.concat('gopin_id', 'gopin_name');
+  var CSV_SINGLE_GOPIN_FIELDS = CSV_LEGACY_FIELDS.concat('gopin_id', 'gopin_name');
+  var CSV_FIELDS = CSV_LEGACY_FIELDS.concat('gopin_ids', 'gopin_names');
   var CSV_TEXT_PREFIX = /^(?:'|[\t\r\n]|\s*[=+@-])/;
 
   function csvText(value) { return CSV_TEXT_PREFIX.test(value) ? "'" + value : value; }
@@ -785,7 +841,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         bathroom_1_id: l.bathroom[0], bathroom_1_name: csvText(names.get(l.bathroom[0]) || ''),
         bathroom_2_id: l.bathroom[1], bathroom_2_name: csvText(names.get(l.bathroom[1]) || ''),
         room_id: l.room, room_name: csvText(names.get(l.room) || ''), note: csvText(l.note),
-        source: l.source, created_at: l.createdAt, gopin_id: csvText(l.gopin), gopin_name: csvText(names.get(l.gopin) || '') };
+        source: l.source, created_at: l.createdAt,
+        gopin_ids: l.gopin.length ? JSON.stringify(l.gopin) : '',
+        gopin_names: csvText(l.gopin.map(function (id) { return names.get(id) || ''; }).join(', ')) };
     }));
     var lines = records.map(function (record) {
       return CSV_FIELDS.map(function (field) {
@@ -812,23 +870,27 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       }
     }
     var header = rows.shift();
-    var fields = header && header.length === CSV_LEGACY_FIELDS.length ? CSV_LEGACY_FIELDS : CSV_FIELDS;
-    if (!header || header.length !== fields.length || !fields.every(function (field, i) { return field === header[i]; })) {
-      throw new Error('Invalid backup header');
-    }
+    var fields = header && [CSV_FIELDS, CSV_SINGLE_GOPIN_FIELDS, CSV_LEGACY_FIELDS].find(function (format) {
+      return format.length === header.length && format.every(function (field, i) { return field === header[i]; });
+    });
+    if (!fields) throw new Error('Invalid backup header');
     var backup = { version: 1, people: Object.create(null), logs: Object.create(null) };
     rows.forEach(function (values) {
-      if (values.length !== header.length) throw new Error('Invalid backup row');
-      var record = Object.fromEntries(header.map(function (field, index) { return [field, values[index]]; }));
+      if (values.length !== fields.length) throw new Error('Invalid backup row');
+      var record = Object.fromEntries(fields.map(function (field, index) { return [field, values[index]]; }));
       if (record.record_type === 'housemate') {
         if (!['true', 'false'].includes(record.active) || Object.hasOwn(backup.people, record.id)) throw new Error('Invalid housemate row');
         backup.people[record.id] = { name: fromCSVText(record.name), active: record.active === 'true',
           baseBath: num(record.base_bath), baseRoom: num(record.base_room), createdAt: num(record.created_at) };
       } else if (record.record_type === 'log') {
         if (Object.hasOwn(backup.logs, record.id)) throw new Error('Duplicate log row');
+        var gopin = record.gopin_ids ? JSON.parse(record.gopin_ids) : gopinIds(fromCSVText(record.gopin_id || ''));
+        if (!Array.isArray(gopin) || gopin.some(function (id) { return typeof id !== 'string' || !id; })) {
+          throw new Error('Invalid Gopin assignment');
+        }
         backup.logs[record.id] = { date: fromCSVText(record.date),
           bathroom: [record.bathroom_1_id, record.bathroom_2_id].filter(Boolean), room: record.room_id,
-          gopin: fromCSVText(record.gopin_id || ''), note: fromCSVText(record.note), source: record.source, createdAt: num(record.created_at) };
+          gopin: gopinIds(gopin), note: fromCSVText(record.note), source: record.source, createdAt: num(record.created_at) };
       } else {
         throw new Error('Invalid backup record type');
       }
@@ -1747,7 +1809,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return '<span class="odds">' +
       oddBar('bath', 'Bath', d.od && i >= 0 ? d.od.pb[i] : 0) +
       oddBar('room', 'Room', d.od && i >= 0 ? d.od.pr[i] : 0) +
-      oddBar('gopin', 'Gopin', g >= 0 ? d.pg[g] : 0) + '</span>';
+      oddBar('gopin', 'Gopin', g >= 0 && d.pg.length ? d.pg[g] : 0) + '</span>';
   }
   function homeRow(p, d) {
     var home = !S.away.has(p.id);
@@ -1792,14 +1854,19 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
     if (S.rolling !== 'gopin') {
       var gopin = d.latestGopin;
-      $('gopin-names').innerHTML = nameSpans(gopin ? [gopin.gopin] : [], ready() ? 'Not picked yet' : 'Loading…');
+      $('gopin-names').innerHTML = nameSpans(gopin ? gopin.gopin : [], ready() ? 'Not picked yet' : 'Loading…');
       $('gopin-when').textContent = gopin ? (gopin.id === S.lastGopinPick ? 'Just picked · ' : '') + fmtDate(gopin.date) : '';
     }
-    $('pick-gopin').disabled = !canWrite() || !d.gopin.length || S.rolling;
+    $('pick-gopin').disabled = !canWrite() || !d.pg.length || S.rolling;
     $('pick-gopin').textContent = S.rolling === 'gopin' ? 'Picking…' : 'Pick for Gopin';
-    $('gopin-hint').textContent = !ready() ? '' : !d.avail.length ? 'Gopin needs one housemate at home.' :
-      !d.gopin.length ? 'Everyone at home is already on Bathroom or Room today.' :
-      'Chooses one housemate at home who isn’t assigned to Bathroom or Room today.';
+    var gopinSize = d.gopinCount + (d.gopinCount === 1 ? ' housemate' : ' housemates');
+    var gopinHint = '';
+    if (ready()) {
+      if (!d.avail.length) gopinHint = 'Gopin needs at least one housemate at home.';
+      else if (!d.pg.length) gopinHint = 'Gopin needs ' + gopinSize + '. Only ' + d.gopin.length + ' are available after Bathroom and Room.';
+      else gopinHint = 'Chooses ' + gopinSize + ' out of ' + d.avail.length + ' at home. Today’s Bathroom and Room assignees sit out.';
+    }
+    $('gopin-hint').textContent = gopinHint;
 
     renderPickStatus('pick-status', S.lastPick, 'clean');
     renderPickStatus('gopin-status', S.lastGopinPick, 'gopin');
@@ -1922,6 +1989,18 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (sel && !personById(sel)) h += '<option value="' + esc(sel) + '" selected>Removed housemate</option>';
     return h;
   }
+
+  function gopinOptions(selected) {
+    var ids = S.people.map(function (person) { return person.id; });
+    selected.forEach(function (id) { if (!ids.includes(id)) ids.push(id); });
+    return '<fieldset class="f f-wide gopin-options"><legend>Gopin</legend>' + ids.map(function (id) {
+      var person = personById(id);
+      var label = nameOf(id) + (person && !person.active ? ' (moved out)' : '');
+      return '<label><input type="checkbox" id="lf-gopin-' + esc(id) + '" data-gopin="' + esc(id) + '"' +
+        (selected.includes(id) ? ' checked' : '') + '> ' + esc(label) + '</label>';
+    }).join('') + '</fieldset>';
+  }
+
   function logFormHtml() {
     var dr = S.draft, isNew = S.editingLog === 'new';
     return '<li class="entry editing" id="log-form-wrap"><form id="log-form" class="log-form" novalidate>' +
@@ -1929,7 +2008,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       '<div class="f"><label for="lf-b1">Bathroom</label><select id="lf-b1">' + peopleOptions(dr.b1, 'Choose…') + '</select></div>' +
       '<div class="f"><label for="lf-b2">and</label><select id="lf-b2">' + peopleOptions(dr.b2, 'Nobody else') + '</select></div>' +
       '<div class="f f-wide"><label for="lf-r">Room</label><select id="lf-r">' + peopleOptions(dr.r, 'Choose…') + '</select></div>' +
-      '<div class="f f-wide"><label for="lf-gopin">Gopin</label><select id="lf-gopin">' + peopleOptions(dr.g, 'Nobody') + '</select></div>' +
+      gopinOptions(dr.g) +
       '<div class="f f-wide"><label for="lf-note">Note</label><input type="text" id="lf-note" maxlength="140" enterkeyhint="done" placeholder="Optional, e.g. swapped with Nikos" value="' + esc(dr.note) + '"></div>' +
       '<p class="form-err" id="lf-err">' + esc(S.logErr) + '</p>' +
       '<div class="f-acts"><button class="btn" type="button" data-act="cancel-log"' + (S.logSaving ? ' disabled' : '') + '>Cancel</button>' +
@@ -1950,7 +2029,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         : '') + '</span>' +
       (includesCleaning(l) ? '<span class="e-job"><span class="lbl">Bathroom</span><span class="chips">' + bath + '</span></span>' +
         '<span class="e-job"><span class="lbl">Room</span><span class="chips">' + room + '</span></span>' : '') +
-      (l.gopin ? '<span class="e-job"><span class="lbl">Gopin</span><span class="chips">' + chip('gopin', l.gopin) + '</span></span>' : '') +
+      (l.gopin.length ? '<span class="e-job"><span class="lbl">Gopin</span><span class="chips">' +
+        l.gopin.map(function (id) { return chip('gopin', id); }).join('') + '</span></span>' : '') +
       '<span class="e-note">' + esc(l.note) + '</span>' +
       '</li>';
   }
@@ -1998,7 +2078,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         var el = document.createElement('span');
         el.className = 'picked-name rolling';
         group.appendChild(el);
-        slots.push({ el: el, name: person.name, stop: 650 + slots.length * 220 });
+        slots.push({ el: el, name: person.name, stop: 650 + Math.min(slots.length * 220, 650) });
       });
     });
     return new Promise(function (resolve) {
@@ -2025,7 +2105,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var source = backend;
     var revision = S.houseRevision;
     var id = source.newId();
-    var body = Object.assign({ date: todayISO(), bathroom: [], room: '', gopin: '',
+    var body = Object.assign({ date: todayISO(), bathroom: [], room: '', gopin: [],
       note: '', source: 'pick', createdAt: Date.now() }, assignments);
     S.rolling = chore;
     S.notice = '';
@@ -2056,14 +2136,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   function pickGopin() {
     if (S.rolling || !canWrite()) return;
     var d = derive();
-    if (!d.gopin.length) return;
-    var chance = Math.random();
-    var person = d.gopin[d.gopin.length - 1];
-    for (var i = 0; i < d.gopin.length; i++) {
-      chance -= d.pg[i];
-      if (chance <= 0) { person = d.gopin[i]; break; }
-    }
-    recordPick('gopin', d.gopin, [{ id: 'gopin-names', people: [person] }], { gopin: person.id });
+    if (!d.pg.length) return;
+    var people = sampleGopin(d.gopin, d.pg, d.gopinCount);
+    recordPick('gopin', d.gopin, [{ id: 'gopin-names', people: people }], {
+      gopin: people.map(function (person) { return person.id; })
+    });
   }
 
   function setPeopleErr(msg) { $('people-err').textContent = msg; }
@@ -2161,11 +2238,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   function startLogEdit(id) {
     if (!canWrite() || S.logSaving) return;
     if (id === 'new') {
-      S.draft = { date: todayISO(), b1: '', b2: '', r: '', g: '', note: '' };
+      S.draft = { date: todayISO(), b1: '', b2: '', r: '', g: [], note: '' };
     } else {
       var l = S.logs.filter(function (x) { return x.id === id; })[0];
       if (!l) return;
-      S.draft = { date: validISO(l.date) ? l.date : todayISO(), b1: l.bathroom[0] || '', b2: l.bathroom[1] || '', r: l.room, g: l.gopin, note: l.note };
+      S.draft = { date: validISO(l.date) ? l.date : todayISO(), b1: l.bathroom[0] || '', b2: l.bathroom[1] || '', r: l.room, g: l.gopin.slice(), note: l.note };
     }
     S.editingLog = id;
     S.logErr = '';
@@ -2184,9 +2261,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var cleaning = dr.b1 || dr.b2 || dr.r;
     if (!validISO(dr.date)) err = 'Pick a date.';
     else if (cleaning && (!dr.b1 || !dr.r)) err = 'Choose at least one person for the bathroom and one for the room.';
-    else if (!cleaning && !dr.g) err = 'Choose housemates for Bathroom and Room or for Gopin.';
+    else if (!cleaning && !dr.g.length) err = 'Choose housemates for Bathroom and Room or for Gopin.';
     else {
-      var ids = [dr.b1, dr.b2, dr.r, dr.g].filter(Boolean);
+      var ids = [dr.b1, dr.b2, dr.r].concat(dr.g).filter(Boolean);
       if (new Set(ids).size !== ids.length) err = 'Choose a different person for each assignment.';
     }
     if (err) { S.logErr = err; render(); return; }
@@ -2214,10 +2291,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   // ---------- events ----------
-  var DRAFT_FIELDS = { 'lf-date': 'date', 'lf-b1': 'b1', 'lf-b2': 'b2', 'lf-r': 'r', 'lf-gopin': 'g', 'lf-note': 'note' };
+  var DRAFT_FIELDS = { 'lf-date': 'date', 'lf-b1': 'b1', 'lf-b2': 'b2', 'lf-r': 'r', 'lf-note': 'note' };
   function onField(e) {
     var t = e.target;
     if (DRAFT_FIELDS[t.id] && S.draft) { S.draft[DRAFT_FIELDS[t.id]] = t.value; return; }
+    if (e.type === 'change' && S.draft && t.dataset && t.dataset.gopin) {
+      var id = t.dataset.gopin;
+      S.draft.g = t.checked ? gopinIds(S.draft.g.concat(id)) : S.draft.g.filter(function (entry) { return entry !== id; });
+      return;
+    }
     if (t.hasAttribute && t.hasAttribute('data-pdraft')) { S.personDraft = t.value; return; }
     if (e.type === 'change' && t.dataset && t.dataset.home && canWrite()) {
       if (t.checked) S.away.delete(t.dataset.home); else S.away.add(t.dataset.home);
