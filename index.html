@@ -109,6 +109,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .sign-in { display: grid; gap: 10px; }
 .sign-in label { display: grid; gap: 4px; }
 .sign-in .auth-mode { justify-self: center; }
+.check-email { display: grid; place-items: center; min-height: 100vh; min-height: 100dvh; padding: 24px; text-align: center; }
+.check-email h1 { font-size: clamp(2.75rem, 9vw, 5.5rem); }
 .onboarding { display: grid; gap: 14px; }
 #brand-name { overflow-wrap: anywhere; }
 #sign-out { margin-bottom: 10px; }
@@ -230,7 +232,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 
-<header class="top">
+<header id="app-header" class="top">
   <div class="brand">
     <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <h1 id="brand-name">Thalamos 4</h1>
@@ -238,7 +240,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   <span id="sync" class="sync" role="status">Connecting…</span>
 </header>
 
-<main class="wrap">
+<main id="app-main" class="wrap">
   <div id="notice" class="notice" role="alert" hidden>
     <span id="notice-text"></span>
     <button id="notice-close" class="btn btn-quiet" type="button">Dismiss</button>
@@ -407,6 +409,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   </div>
 </nav>
 
+<main id="check-email" class="check-email" hidden>
+  <h1 id="check-email-heading" tabindex="-1">Check your email</h1>
+</main>
+
 <script>
 (function () {
   'use strict';
@@ -428,7 +434,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   var S = {
     view: 'pick',
-    mode: 'loading',      // loading | shared | local | signed-out | onboarding | unavailable
+    mode: 'loading',      // loading | shared | local | signed-out | check-email | onboarding | unavailable
     cloud: false, accountId: null,
     householdId: null, householdName: '', householdRole: null, householdBusy: false,
     accounts: null, accountsError: false, promoting: null, promotionStatus: '',
@@ -1198,7 +1204,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   async function setCloudAccount(session, confirmed) {
     var user = session && session.user;
     var id = user ? user.id : null;
-    if (S.accountId === id && (id || S.mode === 'signed-out')) return;
+    if (S.accountId === id && (id || S.mode === 'signed-out' || S.mode === 'check-email')) return;
     if (cloudWatch) { cloudWatch.stop(); cloudWatch = null; }
     backend = null;
     S.accountId = id;
@@ -1319,8 +1325,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       password.value = '';
       if (createAccount && !result.data.session) {
         redeemAfterSignIn = false;
-        S.resendConfirmation = true;
-        $('sign-in-error').textContent = 'Open the confirmation link in your email to sign in to Thalamos 4.';
+        S.mode = 'check-email';
       }
     } catch (error) {
       redeemAfterSignIn = false;
@@ -1339,6 +1344,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     } finally {
       button.disabled = modeButton.disabled = false;
       render();
+      if (S.mode === 'check-email') $('check-email-heading').focus();
     }
   }
 
@@ -1434,6 +1440,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   function renderHeader() {
+    var checkingEmail = S.mode === 'check-email';
+    $('app-header').hidden = checkingEmail;
+    $('app-main').hidden = checkingEmail;
+    $('check-email').hidden = !checkingEmail;
+    if (checkingEmail) {
+      $('tabs').hidden = true;
+      return;
+    }
     var cls = '', text = 'Connecting…';
     if (S.mode === 'local') { cls = 'warn'; text = 'Saved on this phone'; }
     else if (S.mode === 'signed-out') { text = 'Sign in required'; }
