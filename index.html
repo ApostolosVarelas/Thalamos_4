@@ -121,17 +121,17 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   display: flex; flex-direction: column; gap: 12px;
 }
 .pick-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.jobs { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; }
+.jobs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 @media (max-width: 350px) { .jobs { grid-template-columns: minmax(0, 1fr); } }
 .job { border-radius: 12px; padding: 12px 14px 14px; background: var(--bath-soft); min-width: 0; }
 .job.room { background: var(--room-soft); }
 .job-label { display: flex; align-items: center; gap: 6px; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--bath); }
 .job.room .job-label { color: var(--room); }
-.names { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; min-height: 2rem; }
-.name-big { font-family: var(--f-display); font-weight: 800; font-size: 1.3rem; line-height: 1.2; overflow-wrap: break-word; }
-.name-big.empty { font-weight: 500; font-size: 1rem; color: var(--muted); }
-.name-big.rolling { opacity: .5; }
-.name-big.landed { animation: land .24s ease-out; }
+.names { display: grid; gap: 6px; margin-top: 8px; min-height: 2rem; }
+.picked-name { display: block; min-width: 0; padding: 7px 9px; border-radius: 7px; background: var(--surface); color: var(--ink); font-size: .9rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.picked-name.empty { padding: 4px 0; background: transparent; color: var(--muted); font-weight: 500; }
+.picked-name.rolling { opacity: .6; }
+.picked-name.landed { animation: land .24s ease-out; }
 @keyframes land { from { transform: translateY(-5px) scale(1.06); } to { transform: none; } }
 .pick-status { display: flex; align-items: center; gap: 4px; font-size: .9rem; color: var(--bath); font-weight: 600; }
 .pick-status:empty { display: none; }
@@ -144,7 +144,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .home-row.is-away .h-name { color: var(--muted); }
 .h-name { font-weight: 600; overflow-wrap: break-word; }
 .odds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 5px; }
-.odd { display: grid; grid-template-columns: 2.3rem minmax(0, 1fr) 2.3rem; align-items: center; gap: 6px; font: 500 .74rem/1 var(--f-mono); }
+.odd { display: grid; grid-template-columns: 1.9rem minmax(0, 1fr) 3rem; align-items: center; gap: 4px; font: 500 .74rem/1 var(--f-mono); }
+.log-odds-row { padding: 9px 0; }
 .odd .k { font-family: var(--f-body); font-weight: 700; font-size: .7rem; }
 .odd.bath .k { color: var(--bath); }
 .odd.room .k { color: var(--room); }
@@ -248,6 +249,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     <button id="existing-account-btn" class="btn" type="submit" hidden>Sign in with an existing account</button>
     <p id="sign-in-error" class="form-err" role="alert"></p>
   </form>
+  <section id="invite-account" class="card sign-in" aria-label="Join Thalamos 4" hidden>
+    <h2>Join Thalamos 4</h2>
+    <p class="hint">Use the account signed in on this device, or create your own.</p>
+    <button id="join-current-account" class="btn" type="button">Join with this account</button>
+    <button id="invite-create-account" class="btn btn-primary" type="button">Create account</button>
+  </section>
   <button id="sign-out" class="btn btn-quiet" type="button" hidden>Sign out</button>
 
   <section id="view-pick" class="view" aria-label="Pick">
@@ -329,6 +336,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   </section>
 
   <section id="view-log" class="view" aria-label="Log" hidden>
+    <section id="log-odds-card" class="card" aria-label="Next pick chances" hidden>
+      <h2>Next pick chances</h2>
+      <ul id="log-odds-list" class="home-list"></ul>
+    </section>
     <div class="card">
       <div class="sec-head">
         <h2>Log</h2>
@@ -336,9 +347,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       </div>
       <div id="log-area"></div>
       <div id="data-actions" class="data-actions" hidden>
-        <button id="download-backup" class="btn" type="button">Download backup</button>
+        <button id="download-backup" class="btn" type="button">Download CSV backup</button>
         <button id="import-backup" class="btn" type="button" hidden>Import backup</button>
-        <input id="backup-file" type="file" accept=".json,application/json" hidden>
+        <input id="backup-file" type="file" accept=".csv,text/csv,.json,application/json" hidden>
       </div>
     </div>
   </section>
@@ -388,12 +399,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     people: [], logs: [],
     away: new Set(),
     editingPerson: null, personDraft: '',
-    editingLog: null, draft: null, logErr: '',
+    editingLog: null, draft: null, logErr: '', logSaving: false,
     armed: null, lastPick: null, rolling: false,
     showAllLogs: false, movedOpen: false
   };
   var backend = null;
   var cloudClient = null;
+  var cloudWatch = null;
+  var redeemAfterSignIn = false;
   var armTimer = null;
 
   function $(id) { return document.getElementById(id); }
@@ -433,7 +446,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   function showView(v) {
     S.view = v;
     VIEWS.forEach(function (n) {
-      $('view-' + n).hidden = n !== v || (S.cloud && !ready());
+      $('view-' + n).hidden = n !== v || (S.cloud && (!ready() || !!S.inviteToken));
       var t = $('tab-' + n);
       if (n === v) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
     });
@@ -495,27 +508,33 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
   function computeOdds(avail, st) {
     var last = S.logs[0];
-    var cB = avail.map(function (p) { return st[p.id].bath + p.baseBath; });
-    var cR = avail.map(function (p) { return st[p.id].room + p.baseRoom; });
-    var minB = Math.min.apply(null, cB), minR = Math.min.apply(null, cR);
-    var wB = [], wR = [];
-    avail.forEach(function (p, i) {
-      var wb = Math.exp(-K * (cB[i] - minB)), wr = Math.exp(-K * (cR[i] - minR));
+    var wB = [], wR = [], same = Math.log(SAME_AGAIN), other = Math.log(WORKED_LAST);
+    avail.forEach(function (p) {
+      var wb = -K * (st[p.id].bath + p.baseBath), wr = -K * (st[p.id].room + p.baseRoom);
       if (last) {
         var inB = last.bathroom.indexOf(p.id) !== -1, inR = last.room === p.id;
-        if (inB) { wb *= SAME_AGAIN; wr *= WORKED_LAST; }
-        if (inR) { wr *= SAME_AGAIN; wb *= WORKED_LAST; }
+        if (inB) { wb += same; wr += other; }
+        if (inR) { wr += same; wb += other; }
       }
       wB.push(wb); wR.push(wr);
     });
-    var n = avail.length, list = [], total = 0;
+    var n = avail.length, list = [], total = 0, maxScore = -Infinity;
     var pb = new Array(n).fill(0), pr = new Array(n).fill(0);
     for (var i = 0; i < n; i++) for (var j = i + 1; j < n; j++) for (var k = 0; k < n; k++) {
       if (k === i || k === j) continue;
-      var w = wB[i] * wB[j] * wR[k];
-      total += w; pb[i] += w; pb[j] += w; pr[k] += w;
-      list.push([i, j, k, w]);
+      var score = wB[i] + wB[j] + wR[k];
+      maxScore = Math.max(maxScore, score);
+      list.push([i, j, k, score]);
     }
+    // Subtract the best assignment's score before exponentiating to keep the weights finite.
+    list.forEach(function (assignment) {
+      var w = Math.exp(assignment[3] - maxScore);
+      assignment[3] = w;
+      total += w;
+      pb[assignment[0]] += w;
+      pb[assignment[1]] += w;
+      pr[assignment[2]] += w;
+    });
     return {
       list: list, total: total,
       pb: pb.map(function (x) { return x / total; }),
@@ -619,6 +638,73 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return Object.keys(records).map(function (id) { return Object.assign({}, records[id], { id: id }); });
   }
 
+  var CSV_FIELDS = ['record_type', 'id', 'name', 'active', 'base_bath', 'base_room', 'date',
+    'bathroom_1_id', 'bathroom_1_name', 'bathroom_2_id', 'bathroom_2_name',
+    'room_id', 'room_name', 'note', 'source', 'created_at'];
+  var CSV_TEXT_PREFIX = /^(?:'|[\t\r\n]|\s*[=+@-])/;
+
+  function csvText(value) { return CSV_TEXT_PREFIX.test(value) ? "'" + value : value; }
+  function fromCSVText(value) { return value[0] === "'" && CSV_TEXT_PREFIX.test(value.slice(1)) ? value.slice(1) : value; }
+
+  function writeBackupCSV(data) {
+    var people = normPeople(recordRows(data.people));
+    var names = new Map(people.map(function (p) { return [p.id, p.name]; }));
+    var records = people.map(function (p) {
+      return { record_type: 'housemate', id: p.id, name: csvText(p.name), active: p.active,
+        base_bath: p.baseBath, base_room: p.baseRoom, created_at: p.createdAt };
+    }).concat(normLogs(recordRows(data.logs)).map(function (l) {
+      return { record_type: 'log', id: l.id, date: csvText(l.date),
+        bathroom_1_id: l.bathroom[0], bathroom_1_name: csvText(names.get(l.bathroom[0]) || ''),
+        bathroom_2_id: l.bathroom[1], bathroom_2_name: csvText(names.get(l.bathroom[1]) || ''),
+        room_id: l.room, room_name: csvText(names.get(l.room) || ''), note: csvText(l.note),
+        source: l.source, created_at: l.createdAt };
+    }));
+    var lines = records.map(function (record) {
+      return CSV_FIELDS.map(function (field) {
+        var value = record[field];
+        return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
+      }).join(',');
+    });
+    return '\uFEFF' + [CSV_FIELDS.join(',')].concat(lines).join('\r\n') + '\r\n';
+  }
+
+  function readBackupCSV(text) {
+    var rows = [];
+    var row = [];
+    var cell = /("(?:[^"]|"")*"|[^",\r\n]*)(,|\r\n|\n|\r)/gy;
+    if (!/[\r\n]$/.test(text)) text += '\n';
+    while (cell.lastIndex < text.length) {
+      var match = cell.exec(text);
+      if (!match) throw new Error('Invalid CSV field');
+      var value = match[1];
+      row.push(value[0] === '"' ? value.slice(1, -1).replace(/""/g, '"') : value);
+      if (match[2] !== ',') {
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = [];
+      }
+    }
+    var header = rows.shift();
+    if (!header || header.length !== CSV_FIELDS.length || header.join(',') !== CSV_FIELDS.join(',')) throw new Error('Invalid backup header');
+    var backup = { version: 1, people: Object.create(null), logs: Object.create(null) };
+    rows.forEach(function (values) {
+      if (values.length !== CSV_FIELDS.length) throw new Error('Invalid backup row');
+      var record = Object.fromEntries(CSV_FIELDS.map(function (field, index) { return [field, values[index]]; }));
+      if (record.record_type === 'housemate') {
+        if (!['true', 'false'].includes(record.active) || Object.hasOwn(backup.people, record.id)) throw new Error('Invalid housemate row');
+        backup.people[record.id] = { name: fromCSVText(record.name), active: record.active === 'true',
+          baseBath: num(record.base_bath), baseRoom: num(record.base_room), createdAt: num(record.created_at) };
+      } else if (record.record_type === 'log') {
+        if (Object.hasOwn(backup.logs, record.id)) throw new Error('Duplicate log row');
+        backup.logs[record.id] = { date: fromCSVText(record.date),
+          bathroom: [record.bathroom_1_id, record.bathroom_2_id].filter(Boolean), room: record.room_id,
+          note: fromCSVText(record.note), source: record.source, createdAt: num(record.created_at) };
+      } else {
+        throw new Error('Invalid backup record type');
+      }
+    });
+    return backup;
+  }
+
   async function downloadBackup() {
     if (!ready() || (S.cloud && S.stale)) return;
     var source = backend;
@@ -630,11 +716,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         logs: Object.fromEntries(S.logs.map(function (log) { return [log.id, log]; }))
       };
       if (backend !== source) return;
-      var backup = { version: 1, exportedAt: new Date().toISOString(), people: data.people, logs: data.logs };
-      var url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
+      var url = URL.createObjectURL(new Blob([writeBackupCSV(data)], { type: 'text/csv;charset=utf-8' }));
       var link = document.createElement('a');
       link.href = url;
-      link.download = 'thalamos4-' + todayISO() + '.json';
+      link.download = 'thalamos4-' + todayISO() + '.csv';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -660,7 +745,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     button.disabled = true;
     try {
       var data;
-      try { data = JSON.parse(await file.text()); } catch (error) { data = null; }
+      try {
+        var text = (await file.text()).replace(/^\uFEFF/, '');
+        data = text.trimStart()[0] === '{' ? JSON.parse(text) : readBackupCSV(text);
+      } catch (error) { data = null; }
       if (backend !== target) return;
       var valid = isObject(data) && (data.version === 1 || data.version === undefined) &&
         [data.people, data.logs].every(function (records) {
@@ -669,7 +757,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           });
         });
       if (!valid) {
-        S.notice = 'Choose a valid Thalamos 4 JSON backup.';
+        S.notice = 'Choose a Thalamos 4 CSV or JSON backup.';
       } else if (canWrite()) {
         await target.restore(data);
         if (backend !== target) return;
@@ -725,7 +813,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.logs = [];
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
-          if (!S.notice) S.notice = NO_HOUSE_ACCESS;
+          if (!S.notice && !S.inviteToken) S.notice = NO_HOUSE_ACCESS;
           render();
           return;
         }
@@ -772,12 +860,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     window.addEventListener('online', refresh);
     refresh();
 
-    return function () {
-      active = false;
-      clearInterval(poll);
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('online', refresh);
-      client.removeChannel(channel);
+    return {
+      refresh: refresh,
+      stop: function () {
+        active = false;
+        clearInterval(poll);
+        document.removeEventListener('visibilitychange', onVisible);
+        window.removeEventListener('online', refresh);
+        client.removeChannel(channel);
+      }
     };
   }
 
@@ -827,14 +918,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   async function redeemInvite(id) {
-    if (!S.inviteToken) return;
+    var token = S.inviteToken;
+    if (!token) return false;
     try {
-      var result = await cloudClient.rpc('thalamos_redeem_invite', { p_token: S.inviteToken });
+      var result = await cloudClient.rpc('thalamos_redeem_invite', { p_token: token });
       if (result.error) throw result.error;
-      if (S.accountId !== id) return;
+      if (S.accountId !== id || S.inviteToken !== token) return false;
       if (result.data === 'invalid') {
         S.notice = INVALID_INVITATION;
-        return;
+        return false;
       }
       if (result.data !== 'joined' && result.data !== 'member') throw new Error('Invalid invitation response');
       S.inviteToken = '';
@@ -844,15 +936,35 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       history.replaceState(history.state, '', link.href);
       showView('house');
       if (result.data === 'joined') S.notice = 'You’ve joined Thalamos 4.';
+      return true;
     } catch (error) {
-      if (S.accountId === id) S.notice = 'Could not accept this invitation. Reload to try again.';
+      if (S.accountId === id && S.inviteToken === token) S.notice = 'Could not accept this invitation. Try again.';
+      return false;
+    }
+  }
+
+  function inviteFromHash() {
+    var invitation = /^#invite=([0-9a-f]{32})$/.exec(location.hash);
+    return invitation ? invitation[1] : '';
+  }
+
+  async function joinCurrentAccount() {
+    if (!S.accountId || !S.inviteToken) return;
+    var id = S.accountId;
+    var join = $('join-current-account'), create = $('invite-create-account');
+    join.disabled = create.disabled = true;
+    S.notice = '';
+    try {
+      if (await redeemInvite(id) && S.accountId === id && cloudWatch) await cloudWatch.refresh();
+    } finally {
+      join.disabled = create.disabled = false;
+      render();
     }
   }
 
   async function startCloud() {
     S.cloud = true;
-    var invitation = /^#invite=([0-9a-f]{32})$/.exec(location.hash);
-    S.inviteToken = invitation ? invitation[1] : '';
+    S.inviteToken = inviteFromHash();
     render();
     try {
       if (new URL(SUPABASE_URL).protocol !== 'https:' || !SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) {
@@ -866,13 +978,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         document.head.appendChild(script);
       });
       cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { detectSessionInUrl: false } });
-      var stopWatching;
       cloudClient.auth.onAuthStateChange(function (event, session) {
         var id = session ? session.user.id : null;
         // Leave the auth callback before starting requests that use the session.
         setTimeout(async function () {
           if (S.accountId === id && (id || S.mode === 'signed-out')) return;
-          if (stopWatching) { stopWatching(); stopWatching = null; }
+          if (cloudWatch) { cloudWatch.stop(); cloudWatch = null; }
           backend = null;
           S.accountId = id;
           S.mode = id ? 'loading' : 'signed-out';
@@ -882,6 +993,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
           S.notice = '';
+          S.logSaving = false;
           $('invite-url').value = '';
           $('invite-link').hidden = true;
           setInviteStatus('');
@@ -890,8 +1002,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           setPeopleErr('');
           render();
           if (id) {
-            await redeemInvite(id);
-            if (S.accountId === id) stopWatching = watchCloudHouse(cloudClient);
+            var accept = redeemAfterSignIn;
+            redeemAfterSignIn = false;
+            if (accept) await redeemInvite(id);
+            if (S.accountId === id) cloudWatch = watchCloudHouse(cloudClient);
           }
         }, 0);
       });
@@ -908,6 +1022,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (!cloudClient || button.disabled) return;
     button.disabled = existingButton.disabled = true;
     $('sign-in-error').textContent = '';
+    redeemAfterSignIn = !!S.inviteToken;
     var password = $('sign-in-password');
     try {
       var credentials = { email: $('sign-in-email').value.trim(), password: password.value };
@@ -924,15 +1039,18 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (result.error) throw result.error;
       password.value = '';
       if (createAccount && !result.data.session) {
+        redeemAfterSignIn = false;
         $('sign-in-error').textContent = 'Check your email to confirm your account, then use this invitation to sign in.';
       }
     } catch (error) {
+      redeemAfterSignIn = false;
       var message = createAccount ? 'Could not create an account. Try again.' : 'Could not sign in. Try again.';
       if (error.message === INVALID_INVITATION) message = INVALID_INVITATION;
       else if (['user_already_exists', 'email_exists'].includes(error.code)) message = 'This email already has an account. Use “Sign in with an existing account”.';
       else if (error.code === 'weak_password') message = 'Choose a stronger password.';
       else if (error.code === 'invalid_credentials') message = 'Check your email and password.';
       else if (error.code === 'email_not_confirmed') message = 'Confirm your email, then try again.';
+      else if (error.code === 'email_address_not_authorized') message = 'Supabase could not send the confirmation email. Ask the household owner to check email delivery.';
       else if (error.code === 'signup_disabled') message = 'Ask a housemate to enable invite sign-ups in Supabase.';
       $('sign-in-error').textContent = message;
     } finally {
@@ -940,8 +1058,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
-  async function signOut() {
-    var button = $('sign-out');
+  async function signOut(event) {
+    var button = event.currentTarget;
     button.disabled = true;
     try {
       var result = await cloudClient.auth.signOut({ scope: 'local' });
@@ -998,7 +1116,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     renderHeader();
     renderPick(d);
     renderPeople(d);
-    renderLog();
+    renderLog(d);
     if (aid) {
       var el = $(aid);
       if (el && el !== document.activeElement) {
@@ -1022,49 +1140,53 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var s = $('sync');
     s.className = 'sync' + (cls ? ' ' + cls : '');
     s.textContent = text;
+    var incompleteInvite = S.cloud && !S.inviteToken && /(?:^|[?&])join=1(?:&|$)/.test(location.search);
     var msg = S.notice || (S.stale ? "Can't reach the house list yet. It will show up here once the connection is back." : '');
+    if (!msg && incompleteInvite) msg = 'This invitation is missing its code. Ask for a fresh link.';
     $('notice').hidden = !msg;
     $('notice-text').textContent = msg;
     $('notice-close').hidden = S.cloud && !S.notice;
-    var locked = S.cloud && !ready();
+    var joining = !!S.inviteToken;
+    var locked = S.cloud && (!ready() || joining);
     $('tabs').hidden = locked;
     $('view-' + S.view).hidden = locked;
     $('sign-in').hidden = S.mode !== 'signed-out';
-    var joining = !!S.inviteToken;
     $('sign-in-heading').textContent = joining ? 'Join Thalamos 4' : 'Sign in to Thalamos 4';
     $('sign-in-btn').textContent = joining ? 'Create account' : 'Sign in';
     $('sign-in-password').autocomplete = joining ? 'new-password' : 'current-password';
     $('join-hint').hidden = !joining;
     $('existing-account-btn').hidden = !joining;
-    $('sign-out').hidden = !S.accountId;
+    $('invite-account').hidden = !joining || !S.accountId;
+    $('sign-out').hidden = !S.accountId || joining;
     $('invite-actions').hidden = !S.cloud || !canWrite();
     $('data-actions').hidden = !ready() || S.stale;
     $('import-backup').hidden = !S.cloud || !canWrite();
   }
 
   function nameSpans(ids, emptyText) {
-    if (!ids.length) return '<span class="name-big empty">' + esc(emptyText) + '</span>';
-    return ids.map(function (id) { return '<span class="name-big">' + esc(nameOf(id)) + '</span>'; }).join('');
+    if (!ids.length) return '<span class="picked-name empty">' + esc(emptyText) + '</span>';
+    return ids.map(function (id) { return '<span class="picked-name">' + esc(nameOf(id)) + '</span>'; }).join('');
   }
   function oddBar(cls, label, v) {
-    var pct = v > 0 && v < 0.005 ? '<1%' : Math.round(v * 100) + '%';
+    var percent = v * 100;
+    var pct = percent > 0 && percent < 0.05 ? '<0.1%' : String(Number(percent.toFixed(1))) + '%';
     return '<span class="odd ' + cls + '" role="img" aria-label="' + label + ' chance ' + esc(pct) + '">' +
       '<span class="k">' + label + '</span><span class="bar"><i style="width:' + (v * 100).toFixed(1) + '%"></i></span>' +
       '<span class="pct">' + esc(pct) + '</span></span>';
   }
+  function oddsFor(p, d) {
+    if (S.away.has(p.id)) return '<span class="muted small">Away, sits out this pick</span>';
+    if (!d.od) return '<span class="muted small">Needs 3 people at home</span>';
+    var i = d.avail.indexOf(p);
+    return '<span class="odds">' + oddBar('bath', 'Bath', d.od.pb[i]) + oddBar('room', 'Room', d.od.pr[i]) + '</span>';
+  }
   function homeRow(p, d) {
-    var home = !S.away.has(p.id), odds;
-    if (!home) odds = '<span class="muted small">Away, sits out this pick</span>';
-    else if (!d.od) odds = '<span class="muted small">Needs 3 people at home</span>';
-    else {
-      var i = d.avail.indexOf(p);
-      odds = '<span class="odds">' + oddBar('bath', 'Bath', d.od.pb[i]) + oddBar('room', 'Room', d.od.pr[i]) + '</span>';
-    }
+    var home = !S.away.has(p.id);
     return '<li><label class="home-row' + (home ? '' : ' is-away') + '">' +
       '<span class="switch"><input type="checkbox" id="home-' + esc(p.id) + '" data-home="' + esc(p.id) + '"' + (home ? ' checked' : '') + '>' +
       '<span class="track"></span></span>' +
       '<span class="h-main"><span class="h-name">' + esc(p.name) + '</span><span class="sr">, home for the next pick</span>' +
-      '<span style="display:block">' + odds + '</span></span>' +
+      '<span style="display:block">' + oddsFor(p, d) + '</span></span>' +
       '</label></li>';
   }
 
@@ -1072,16 +1194,16 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var latest = S.logs[0];
     if (!S.rolling) {
       if (!ready()) {
-        $('bath-names').innerHTML = '<span class="name-big empty">Loading…</span>';
-        $('room-names').innerHTML = '<span class="name-big empty">Loading…</span>';
+        $('bath-names').innerHTML = '<span class="picked-name empty">Loading…</span>';
+        $('room-names').innerHTML = '<span class="picked-name empty">Loading…</span>';
         $('pick-when').textContent = '';
       } else if (latest) {
         $('bath-names').innerHTML = nameSpans(latest.bathroom, 'Nobody');
         $('room-names').innerHTML = nameSpans(latest.room ? [latest.room] : [], 'Nobody');
         $('pick-when').textContent = (latest.id === S.lastPick ? 'Just picked · ' : '') + fmtDate(latest.date);
       } else {
-        $('bath-names').innerHTML = '<span class="name-big empty">Not picked yet</span>';
-        $('room-names').innerHTML = '<span class="name-big empty">Not picked yet</span>';
+        $('bath-names').innerHTML = '<span class="picked-name empty">Not picked yet</span>';
+        $('room-names').innerHTML = '<span class="picked-name empty">Not picked yet</span>';
         $('pick-when').textContent = '';
       }
     }
@@ -1194,8 +1316,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       '<div class="f f-wide"><label for="lf-r">Room</label><select id="lf-r">' + peopleOptions(dr.r, 'Choose…') + '</select></div>' +
       '<div class="f f-wide"><label for="lf-note">Note</label><input type="text" id="lf-note" maxlength="140" enterkeyhint="done" placeholder="Optional, e.g. swapped with Nikos" value="' + esc(dr.note) + '"></div>' +
       '<p class="form-err" id="lf-err">' + esc(S.logErr) + '</p>' +
-      '<div class="f-acts"><button class="btn" type="button" data-act="cancel-log">Cancel</button>' +
-      '<button class="btn btn-primary" type="submit">' + (isNew ? 'Add entry' : 'Save') + '</button></div>' +
+      '<div class="f-acts"><button class="btn" type="button" data-act="cancel-log"' + (S.logSaving ? ' disabled' : '') + '>Cancel</button>' +
+      '<button class="btn btn-primary" type="submit"' + (S.logSaving ? ' disabled>Saving…' : '>' + (isNew ? 'Add entry' : 'Save')) + '</button></div>' +
       '</form></li>';
   }
   function chip(cls, id) {
@@ -1215,11 +1337,16 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       '<span class="e-note">' + esc(l.note) + '</span>' +
       '</li>';
   }
-  function renderLog() {
+  function renderLog(d) {
     var w = canWrite();
     var addBtn = $('add-log-btn');
     addBtn.hidden = !w;
-    addBtn.disabled = S.editingLog === 'new';
+    addBtn.disabled = S.editingLog === 'new' || S.logSaving;
+    var showOdds = ready() && d.active.length > 0;
+    $('log-odds-card').hidden = !showOdds;
+    $('log-odds-list').innerHTML = showOdds ? d.active.map(function (p) {
+      return '<li class="log-odds-row"><span class="h-name">' + esc(p.name) + '</span>' + oddsFor(p, d) + '</li>';
+    }).join('') : '';
     var area = $('log-area');
     if (!ready()) {
       area.innerHTML = '<p class="empty">' + (S.mode === 'unavailable' ? 'The log isn\'t available here.' : 'Loading the log…') + '</p>';
@@ -1245,8 +1372,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   function roll(avail, choice) {
     return new Promise(function (resolve) {
       if (reduceMotion()) { resolve(); return; }
-      $('bath-names').innerHTML = '<span class="name-big rolling" id="rs0"></span><span class="name-big rolling" id="rs1"></span>';
-      $('room-names').innerHTML = '<span class="name-big rolling" id="rs2"></span>';
+      $('bath-names').innerHTML = '<span class="picked-name rolling" id="rs0"></span><span class="picked-name rolling" id="rs1"></span>';
+      $('room-names').innerHTML = '<span class="picked-name rolling" id="rs2"></span>';
       var finals = [choice.b1.name, choice.b2.name, choice.r.name];
       var stops = [650, 850, 1100];
       var t0 = performance.now();
@@ -1256,7 +1383,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           var el = $('rs' + i);
           if (!el) continue;
           if (t >= stops[i]) {
-            if (!el.dataset.done) { el.dataset.done = '1'; el.textContent = finals[i]; el.className = 'name-big landed'; }
+            if (!el.dataset.done) { el.dataset.done = '1'; el.textContent = finals[i]; el.className = 'picked-name landed'; }
           } else {
             done = false;
             el.textContent = avail[Math.floor(Math.random() * avail.length)].name;
@@ -1359,13 +1486,16 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     write(function () { return backend.delPerson(id); });
     render();
   }
-  function deleteLog(id) {
+  async function deleteLog(id) {
+    if (!canWrite()) return;
     var key = 'log:' + id;
     if (S.armed !== key) { arm(key); return; }
     S.armed = null;
-    if (S.lastPick === id) S.lastPick = null;
-    write(function () { return backend.delLog(id); });
     render();
+    if (await write(function () { return backend.delLog(id); }) && S.lastPick === id) {
+      S.lastPick = null;
+      render();
+    }
   }
   function undoPick() {
     var id = S.lastPick;
@@ -1375,7 +1505,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     render();
   }
   function startLogEdit(id) {
-    if (!canWrite()) return;
+    if (!canWrite() || S.logSaving) return;
     if (id === 'new') {
       S.draft = { date: todayISO(), b1: '', b2: '', r: '', note: '' };
     } else {
@@ -1389,10 +1519,13 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var f = $('log-form-wrap');
     if (f && f.scrollIntoView) f.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
   }
-  function cancelLog() { S.editingLog = null; S.draft = null; S.logErr = ''; render(); }
-  function saveLog() {
+  function cancelLog() {
+    if (S.logSaving) return;
+    S.editingLog = null; S.draft = null; S.logErr = ''; render();
+  }
+  async function saveLog() {
     var dr = S.draft;
-    if (!dr) return;
+    if (!dr || !canWrite() || S.logSaving) return;
     var err = '';
     if (!validISO(dr.date)) err = 'Pick a date.';
     else if (!dr.b1 || !dr.r) err = 'Choose at least one person for the bathroom and one for the room.';
@@ -1412,8 +1545,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       source: prev ? prev.source : 'manual',
       createdAt: prev ? prev.createdAt : Date.now()
     };
-    S.editingLog = null; S.draft = null; S.logErr = '';
-    write(function () { return backend.putLog(id, body); });
+    var target = backend;
+    S.logSaving = true;
+    S.logErr = '';
+    render();
+    var saved = await write(function () { return target.putLog(id, body); });
+    if (backend !== target) return;
+    S.logSaving = false;
+    if (saved && S.draft === dr) { S.editingLog = null; S.draft = null; }
     render();
   }
 
@@ -1475,6 +1614,17 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (e.target && e.target.id === 'moved-d') S.movedOpen = e.target.open;
     }, true);
     window.addEventListener('hashchange', function () {
+      if (S.cloud) {
+        var token = inviteFromHash();
+        if (token !== S.inviteToken) {
+          S.inviteToken = token;
+          S.notice = '';
+          $('sign-in-error').textContent = '';
+          if (!token) showView(viewFromHash());
+          render();
+          return;
+        }
+      }
       var v = viewFromHash();
       if (v !== S.view) { showView(v); window.scrollTo(0, 0); }
     });
@@ -1483,6 +1633,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('notice-close').addEventListener('click', function () { S.notice = ''; if (!S.cloud) S.stale = false; render(); });
     $('new-name').addEventListener('input', function () { setPeopleErr(''); });
     $('sign-out').addEventListener('click', signOut);
+    $('join-current-account').addEventListener('click', joinCurrentAccount);
+    $('invite-create-account').addEventListener('click', signOut);
     $('create-invite').addEventListener('click', createInvite);
     $('copy-invite').addEventListener('click', copyInvite);
     $('download-backup').addEventListener('click', downloadBackup);
