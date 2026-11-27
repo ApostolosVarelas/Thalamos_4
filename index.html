@@ -99,7 +99,7 @@ h2 { font-weight: 700; font-size: 1.12rem; line-height: 1.2; }
 .btn:active:not(:disabled) { transform: scale(.98); }
 .btn:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* 16px keeps iPhones from zooming in when a field is tapped */
-input[type="text"], input[type="date"], input[type="email"], input[type="password"], select {
+input[type="text"], input[type="date"], input[type="email"], input[type="password"], input[type="url"], select {
   font: inherit; font-size: 16px; color: var(--ink); background: var(--surface);
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; min-height: 46px; width: 100%; min-width: 0;
 }
@@ -108,6 +108,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .form-err:empty { display: none; }
 .sign-in { display: grid; gap: 10px; }
 .sign-in label { display: grid; gap: 4px; }
+.sign-in .auth-mode { justify-self: center; }
 #sign-out { margin-bottom: 10px; }
 .data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .invite-link { display: grid; gap: 8px; margin-top: 12px; }
@@ -241,12 +242,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   </div>
 
   <form id="sign-in" class="card sign-in" hidden>
-    <h2 id="sign-in-heading">Sign in to Thalamos 4</h2>
-    <p id="join-hint" class="hint" hidden>Choose an email and password to join the household.</p>
+    <h2 id="sign-in-heading" tabindex="-1">Sign in to Thalamos 4</h2>
+    <p id="join-hint" class="hint" hidden></p>
+    <label id="signup-invite-field" hidden>Invitation link
+      <input id="signup-invite" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the link a housemate sent you" disabled>
+    </label>
     <label>Email <input id="sign-in-email" type="email" autocomplete="username" required></label>
     <label>Password <input id="sign-in-password" type="password" autocomplete="current-password" required></label>
     <button id="sign-in-btn" class="btn btn-primary" type="submit">Sign in</button>
-    <button id="existing-account-btn" class="btn" type="submit" hidden>Sign in with an existing account</button>
+    <button id="auth-mode-btn" class="btn auth-mode" type="button">Create account</button>
     <button id="resend-confirmation" class="btn btn-quiet" type="button" hidden>Resend confirmation email</button>
     <p id="sign-in-error" class="form-err" role="alert"></p>
   </form>
@@ -395,7 +399,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     view: 'pick',
     mode: 'loading',      // loading | shared | local | signed-out | unavailable
     cloud: false, accountId: null,
-    inviteToken: '', resendConfirmation: false,
+    inviteToken: '', authView: 'signin', resendConfirmation: false,
     gotPeople: false, gotLogs: false,
     stale: false, readOnly: false, notice: '',
     people: [], logs: [],
@@ -944,9 +948,28 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
-  function inviteFromHash() {
-    var invitation = /^#invite=([0-9a-f]{32})$/.exec(location.hash);
+  function inviteFromHash(hash) {
+    var invitation = /^#invite=([0-9a-f]{32})$/.exec(hash);
     return invitation ? invitation[1] : '';
+  }
+
+  function applyPastedInvite() {
+    var input = $('signup-invite');
+    try {
+      var link = new URL(input.value.trim());
+      var site = new URL(confirmationDestination());
+      if (link.origin !== site.origin || ![site.pathname, site.pathname + 'index.html'].includes(link.pathname)) return false;
+      var token = inviteFromHash(link.hash);
+      if (!token) return false;
+      site.searchParams.set('join', '1');
+      site.hash = 'invite=' + token;
+      history.replaceState(history.state, '', site.href);
+      S.inviteToken = token;
+      input.value = '';
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   function openHouseAfterJoin() {
@@ -1015,6 +1038,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     backend = null;
     S.accountId = id;
     S.mode = id ? 'loading' : 'signed-out';
+    if (id) S.authView = 'signin';
     S.people = [];
     S.logs = [];
     S.away.clear();
@@ -1043,7 +1067,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   async function startCloud() {
     S.cloud = true;
-    S.inviteToken = inviteFromHash();
+    S.inviteToken = inviteFromHash(location.hash);
     var confirmation = emailConfirmationReturn();
     if (confirmation) S.notice = confirmation.message || 'Finishing sign-in…';
     render();
@@ -1088,12 +1112,28 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
-  async function signIn(createAccount) {
-    var button = $('sign-in-btn');
-    var existingButton = $('existing-account-btn');
-    if (!cloudClient || button.disabled) return;
-    button.disabled = existingButton.disabled = true;
+  function switchAuthView() {
+    S.authView = S.authView === 'signup' ? 'signin' : 'signup';
+    S.resendConfirmation = false;
     $('sign-in-error').textContent = '';
+    $('sign-in-password').value = '';
+    render();
+    $('sign-in-heading').focus({ preventScroll: true });
+  }
+
+  async function signIn() {
+    var button = $('sign-in-btn');
+    var modeButton = $('auth-mode-btn');
+    if (!cloudClient || S.mode !== 'signed-out' || button.disabled) return;
+    var createAccount = S.authView === 'signup';
+    $('sign-in-error').textContent = '';
+    if (createAccount && !S.inviteToken && !applyPastedInvite()) {
+      $('sign-in-error').textContent = 'Paste a valid Thalamos 4 invitation link.';
+      $('signup-invite').focus();
+      return;
+    }
+    button.disabled = modeButton.disabled = true;
+    render();
     redeemAfterSignIn = !!S.inviteToken;
     var password = $('sign-in-password');
     try {
@@ -1119,7 +1159,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       redeemAfterSignIn = false;
       var message = createAccount ? 'Could not create an account. Try again.' : 'Could not sign in. Try again.';
       if (error.message === INVALID_INVITATION) message = INVALID_INVITATION;
-      else if (['user_already_exists', 'email_exists'].includes(error.code)) message = 'This email already has an account. Use “Sign in with an existing account”.';
+      else if (['user_already_exists', 'email_exists'].includes(error.code)) message = 'This email already has an account. Choose “Back to sign in”.';
       else if (error.code === 'weak_password') message = 'Choose a stronger password.';
       else if (error.code === 'invalid_credentials') message = 'Check your email and password.';
       else if (error.code === 'email_not_confirmed') {
@@ -1130,7 +1170,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       else if (error.code === 'signup_disabled') message = 'Ask a housemate to enable invite sign-ups in Supabase.';
       $('sign-in-error').textContent = message;
     } finally {
-      button.disabled = existingButton.disabled = false;
+      button.disabled = modeButton.disabled = false;
       render();
     }
   }
@@ -1157,11 +1197,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   async function signOut(event) {
     var button = event.currentTarget;
+    var previousView = S.authView;
+    S.authView = button.id === 'invite-create-account' ? 'signup' : 'signin';
     button.disabled = true;
     try {
       var result = await cloudClient.auth.signOut({ scope: 'local' });
       if (result.error) throw result.error;
     } catch (error) {
+      S.authView = previousView;
       S.notice = 'Could not sign out. Try again.';
       render();
     } finally {
@@ -1248,11 +1291,17 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('tabs').hidden = locked;
     $('view-' + S.view).hidden = locked;
     $('sign-in').hidden = S.mode !== 'signed-out';
-    $('sign-in-heading').textContent = joining ? 'Join Thalamos 4' : 'Sign in to Thalamos 4';
-    $('sign-in-btn').textContent = joining ? 'Create account' : 'Sign in';
-    $('sign-in-password').autocomplete = joining ? 'new-password' : 'current-password';
-    $('join-hint').hidden = !joining;
-    $('existing-account-btn').hidden = !joining;
+    var creating = S.authView === 'signup';
+    $('sign-in-heading').textContent = creating ? 'Create your Thalamos 4 account' : 'Sign in to Thalamos 4';
+    $('sign-in-btn').textContent = creating ? 'Create account' : 'Sign in';
+    $('auth-mode-btn').textContent = creating ? 'Back to sign in' : 'Create account';
+    $('sign-in-password').autocomplete = creating ? 'new-password' : 'current-password';
+    $('join-hint').textContent = creating ? 'We’ll send a link to verify your email.' : 'Sign in to join the household.';
+    $('join-hint').hidden = !creating && !joining;
+    var needsInvite = creating && !joining;
+    $('signup-invite-field').hidden = !needsInvite;
+    $('signup-invite').disabled = !needsInvite;
+    $('signup-invite').required = needsInvite;
     $('resend-confirmation').hidden = !joining || !S.resendConfirmation;
     $('invite-account').hidden = !joining || !S.accountId;
     $('sign-out').hidden = !S.accountId || joining;
@@ -1696,7 +1745,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (f.id === 'add-person') { e.preventDefault(); addPerson(); }
       else if (f.id === 'sign-in') {
         e.preventDefault();
-        signIn(!!S.inviteToken && e.submitter !== $('existing-account-btn'));
+        signIn();
       }
       else if (f.id === 'log-form') { e.preventDefault(); saveLog(); }
       else if (f.classList.contains('person-form')) { e.preventDefault(); savePersonName(f.getAttribute('data-id')); }
@@ -1713,12 +1762,14 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }, true);
     window.addEventListener('hashchange', function () {
       if (S.cloud) {
-        var token = inviteFromHash();
+        var token = inviteFromHash(location.hash);
         if (token !== S.inviteToken) {
           S.inviteToken = token;
+          S.authView = 'signin';
           S.notice = '';
           S.resendConfirmation = false;
           $('sign-in-error').textContent = '';
+          $('sign-in-password').value = '';
           if (!token) showView(viewFromHash());
           render();
           return;
@@ -1732,6 +1783,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('notice-close').addEventListener('click', function () { S.notice = ''; if (!S.cloud) S.stale = false; render(); });
     $('new-name').addEventListener('input', function () { setPeopleErr(''); });
     $('sign-out').addEventListener('click', signOut);
+    $('auth-mode-btn').addEventListener('click', switchAuthView);
     $('resend-confirmation').addEventListener('click', resendConfirmationEmail);
     $('join-current-account').addEventListener('click', joinCurrentAccount);
     $('invite-create-account').addEventListener('click', signOut);
