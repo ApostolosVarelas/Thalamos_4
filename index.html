@@ -427,6 +427,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var INVALID_INVITATION = 'This invitation is invalid, expired, or already used.';
   var ALREADY_IN_HOUSEHOLD = 'You already belong to a different household.';
   var CONFIRMED_SIGN_IN = 'Email confirmed. You’re signed in.';
+  var EMAIL_ALREADY_EXISTS = 'This email already exists. Choose “Back to sign in”.';
   var INVITE_TOKEN = /^[0-9a-f]{32}$/;
   var JOIN_CODE = /^[0-9]{6}$/;
   var SUPABASE_URL = 'https://qfwkwoamkjgwxhmjrkyw.supabase.co';
@@ -1302,6 +1303,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (!cloudClient || S.mode !== 'signed-out' || button.disabled) return;
     var createAccount = S.authView === 'signup';
     $('sign-in-error').textContent = '';
+    S.resendConfirmation = false;
     button.disabled = modeButton.disabled = true;
     render();
     redeemAfterSignIn = !!S.inviteToken;
@@ -1310,12 +1312,17 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var credentials = { email: $('sign-in-email').value.trim(), password: password.value };
       var result;
       if (createAccount) {
-        credentials.options = { emailRedirectTo: confirmationDestination() };
+        // Supabase keeps the original metadata when signup resends an existing user's confirmation.
+        var signupAttempt = crypto.randomUUID();
+        credentials.options = {
+          emailRedirectTo: confirmationDestination(),
+          data: { thalamos_signup_attempt: signupAttempt }
+        };
         if (S.inviteToken) {
           // The Auth hook binds a signup to the invitation hash and the identity being created.
           var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(S.inviteToken));
           var hash = Array.from(new Uint8Array(digest), function (n) { return n.toString(16).padStart(2, '0'); }).join('');
-          credentials.options.data = { thalamos_invite_hash: hash };
+          credentials.options.data.thalamos_invite_hash = hash;
         }
         result = await cloudClient.auth.signUp(credentials);
       } else {
@@ -1325,13 +1332,21 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       password.value = '';
       if (createAccount && !result.data.session) {
         redeemAfterSignIn = false;
-        S.mode = 'check-email';
+        var user = result.data.user;
+        if (!user) throw new Error('Missing signup user');
+        if (!user.invited_at && Array.isArray(user.identities) && user.identities.length === 0) {
+          $('sign-in-error').textContent = EMAIL_ALREADY_EXISTS;
+        } else if (user.user_metadata && user.user_metadata.thalamos_signup_attempt === signupAttempt) {
+          S.mode = 'check-email';
+        } else {
+          $('sign-in-error').textContent = 'This email already has an account and still needs verification. We sent a new verification link. Open the newest email.';
+        }
       }
     } catch (error) {
       redeemAfterSignIn = false;
       var message = createAccount ? 'Could not create an account. Try again.' : 'Could not sign in. Try again.';
       if (error.message === INVALID_INVITATION) message = INVALID_INVITATION;
-      else if (['user_already_exists', 'email_exists'].includes(error.code)) message = 'This email already has an account. Choose “Back to sign in”.';
+      else if (['user_already_exists', 'email_exists'].includes(error.code) || error.message === 'User already registered') message = EMAIL_ALREADY_EXISTS;
       else if (error.code === 'weak_password') message = 'Choose a stronger password.';
       else if (error.code === 'invalid_credentials') message = 'Check your email and password.';
       else if (error.code === 'email_not_confirmed') {
@@ -1339,6 +1354,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         message = 'Confirm your email, then try again.';
       }
       else if (error.code === 'email_address_not_authorized') message = 'Supabase could not send the confirmation email. Ask the household owner to check email delivery.';
+      else if (createAccount && error.code === 'over_email_send_rate_limit') message = 'The email limit was reached. Use the verification link you already received, or try again later.';
       else if (error.code === 'signup_disabled') message = 'Account creation is currently disabled.';
       $('sign-in-error').textContent = message;
     } finally {
