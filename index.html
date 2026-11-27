@@ -114,6 +114,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 #sign-out { margin-bottom: 10px; }
 .data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .invite-link { display: grid; gap: 8px; margin-top: 12px; }
+#join-code-value { font-family: var(--f-mono); font-weight: 700; letter-spacing: .18em; text-align: center; }
 #invite-status { margin-top: 8px; }
 
 /* Pick screen */
@@ -269,8 +270,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     </form>
     <form id="join-household" class="card sign-in">
       <h2>Join a household</h2>
-      <label>Invitation link
-        <input id="household-invite" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the link a housemate sent you" required>
+      <label>6-digit household code
+        <input id="household-code" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
       </label>
       <button id="join-household-btn" class="btn" type="submit">Join household</button>
     </form>
@@ -343,7 +344,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     <div id="invite-actions" class="card" hidden>
       <div class="sec-head">
         <h2>Invite someone</h2>
+      </div>
+      <div class="data-actions">
+        <button id="get-join-code" class="btn btn-primary" type="button">Get join code</button>
         <button id="create-invite" class="btn" type="button">Create link</button>
+      </div>
+      <div id="join-code-panel" class="invite-link" hidden>
+        <input id="join-code-value" type="text" aria-label="6-digit household code" readonly>
+        <div class="row-acts"><button id="copy-join-code" class="btn" type="button">Copy code</button></div>
+        <p id="join-code-expiry" class="hint"></p>
       </div>
       <div id="invite-link" class="invite-link" hidden>
         <input id="invite-url" type="text" aria-label="Invitation link" readonly>
@@ -406,6 +415,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var ALREADY_IN_HOUSEHOLD = 'You already belong to a different household.';
   var CONFIRMED_SIGN_IN = 'Email confirmed. You’re signed in.';
   var INVITE_TOKEN = /^[0-9a-f]{32}$/;
+  var JOIN_CODE = /^[0-9]{6}$/;
   var SUPABASE_URL = 'https://qfwkwoamkjgwxhmjrkyw.supabase.co';
   var SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_MLq3YZx8arJPdfjwomjbTg_Xqs1ZL61';
 
@@ -808,7 +818,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var changedHousehold = S.householdId !== house.household_id;
       if (!active || (!changedHousehold && house.revision < revision)) return;
       if (changedHousehold || house.revision !== revision || !ready()) {
-        if (changedHousehold) S.away.clear();
+        if (changedHousehold) {
+          S.away.clear();
+          clearInviteControls();
+        }
         S.householdId = house.household_id;
         S.householdName = house.name;
         S.people = normPeople(recordRows(house.people));
@@ -832,6 +845,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         if (!active || request !== readNumber) return;
         if (result.error) throw result.error;
         if (!result.data) {
+          if (S.householdId) clearInviteControls();
           S.mode = 'onboarding';
           S.householdId = null;
           S.householdName = '';
@@ -904,6 +918,42 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     status.hidden = !message;
   }
 
+  function clearInviteControls() {
+    $('invite-url').value = '';
+    $('invite-link').hidden = true;
+    $('join-code-value').value = '';
+    delete $('join-code-value').dataset.expiresAt;
+    $('join-code-panel').hidden = true;
+    setInviteStatus('');
+  }
+
+  async function getJoinCode() {
+    var button = $('get-join-code');
+    if (!S.cloud || !canWrite() || button.disabled) return;
+    var source = backend;
+    var household = S.householdId;
+    button.disabled = true;
+    setInviteStatus('Getting join code…');
+    try {
+      var result = await cloudClient.rpc('thalamos_get_join_code');
+      if (result.error) throw result.error;
+      if (backend !== source || S.householdId !== household) return;
+      var expires = new Date(result.data && result.data.expires_at);
+      if (!result.data || typeof result.data.code !== 'string' || !JOIN_CODE.test(result.data.code) || !Number.isFinite(expires.getTime())) {
+        throw new Error('Invalid join code response');
+      }
+      $('join-code-value').value = result.data.code;
+      $('join-code-value').dataset.expiresAt = expires.getTime();
+      $('join-code-expiry').textContent = 'Valid until ' + expires.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + '.';
+      $('join-code-panel').hidden = false;
+      setInviteStatus('');
+    } catch (error) {
+      if (backend === source && S.householdId === household) setInviteStatus('Could not get a join code. Try again.');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function createInvite() {
     var button = $('create-invite');
     if (!S.cloud || !canWrite() || button.disabled) return;
@@ -931,25 +981,31 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
-  async function copyInvite() {
-    var input = $('invite-url');
+  async function copyInvitation(event) {
+    var code = event.currentTarget.id === 'copy-join-code';
+    var input = $(code ? 'join-code-value' : 'invite-url');
+    if (code && !(Number(input.dataset.expiresAt) > Date.now())) {
+      $('join-code-panel').hidden = true;
+      setInviteStatus('This code expired. Tap Get join code for a new one.');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(input.value);
-      setInviteStatus('Link copied. Paste it into a message to the person you’re inviting.');
+      setInviteStatus(code ? 'Code copied.' : 'Link copied.');
     } catch (error) {
       input.focus();
       input.select();
-      setInviteStatus('Select and copy the link above.');
+      setInviteStatus(code ? 'Select and copy the code above.' : 'Select and copy the link above.');
     }
   }
 
-  async function redeemInvite(id, pastedToken) {
-    var token = pastedToken || S.inviteToken;
+  async function redeemInvite(id) {
+    var token = S.inviteToken;
     if (!token) return false;
     try {
       var result = await cloudClient.rpc('thalamos_redeem_invite', { p_token: token });
       if (result.error) throw result.error;
-      if (S.accountId !== id || (!pastedToken && S.inviteToken !== token)) return false;
+      if (S.accountId !== id || S.inviteToken !== token) return false;
       if (result.data === 'invalid') {
         S.notice = INVALID_INVITATION;
         return false;
@@ -964,7 +1020,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (result.data === 'joined') S.notice = 'You’ve joined the household.';
       return true;
     } catch (error) {
-      if (S.accountId === id && (pastedToken || S.inviteToken === token)) S.notice = 'Could not accept this invitation. Try again.';
+      if (S.accountId === id && S.inviteToken === token) S.notice = 'Could not accept this invitation. Try again.';
       return false;
     }
   }
@@ -974,24 +1030,13 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return invitation ? invitation[1] : '';
   }
 
-  function readInviteLink(value) {
-    try {
-      var link = new URL(value.trim());
-      var site = new URL(confirmationDestination());
-      if (link.origin !== site.origin || ![site.pathname, site.pathname + 'index.html'].includes(link.pathname)) return '';
-      return inviteFromHash(link.hash);
-    } catch (error) {
-      return '';
-    }
-  }
-
   async function setUpHousehold(create) {
     if (S.mode !== 'onboarding' || !S.accountId || S.householdBusy || S.inviteToken) return;
     var id = S.accountId;
-    var input = $(create ? 'household-name' : 'household-invite');
-    var value = create ? input.value.trim() : readInviteLink(input.value);
-    if (!value) {
-      S.notice = create ? 'Enter a name for your household.' : 'Paste a valid Thalamos 4 invitation link.';
+    var input = $(create ? 'household-name' : 'household-code');
+    var value = input.value.trim();
+    if (create ? !value : !JOIN_CODE.test(value)) {
+      S.notice = create ? 'Enter a name for your household.' : 'Enter the 6-digit household code.';
       render();
       input.focus();
       return;
@@ -1000,19 +1045,26 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     S.notice = '';
     render();
     try {
-      if (create) {
-        var result = await cloudClient.rpc('thalamos_create_household', { p_name: value });
-        if (result.error) throw result.error;
-        if (S.accountId !== id) return;
-        openHouseAfterJoin();
-      } else if (!await redeemInvite(id, value)) {
-        return;
-      }
+      var result = create
+        ? await cloudClient.rpc('thalamos_create_household', { p_name: value })
+        : await cloudClient.rpc('thalamos_join_by_code', { p_code: value });
+      if (result.error) throw result.error;
       if (S.accountId !== id) return;
+      if (!create) {
+        if (result.data === 'invalid' || result.data === 'rate_limited') {
+          S.notice = result.data === 'invalid'
+            ? 'That code is invalid or expired. Ask a housemate for the current code.'
+            : 'Too many attempts. Try again in 15 minutes.';
+          return;
+        }
+        if (result.data !== 'joined' && result.data !== 'already_member') throw new Error('Invalid join response');
+        S.notice = result.data === 'joined' ? 'You’ve joined the household.' : 'You already belong to a household.';
+      }
+      openHouseAfterJoin();
       input.value = '';
       if (cloudWatch) await cloudWatch.refresh();
     } catch (error) {
-      if (S.accountId === id) S.notice = 'Could not create your household. Try again.';
+      if (S.accountId === id) S.notice = create ? 'Could not create your household. Try again.' : 'Could not join the household. Try again.';
     } finally {
       if (S.accountId === id) { S.householdBusy = false; render(); }
     }
@@ -1097,13 +1149,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     S.notice = confirmed ? CONFIRMED_SIGN_IN : '';
     S.resendConfirmation = false;
     S.logSaving = false;
-    $('invite-url').value = '';
-    $('invite-link').hidden = true;
-    setInviteStatus('');
+    clearInviteControls();
     S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
     $('new-name').value = '';
     $('household-name').value = '';
-    $('household-invite').value = '';
+    $('household-code').value = '';
     setPeopleErr('');
     render();
     if (id) {
@@ -1842,8 +1892,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('resend-confirmation').addEventListener('click', resendConfirmationEmail);
     $('join-current-account').addEventListener('click', joinCurrentAccount);
     $('invite-create-account').addEventListener('click', signOut);
+    $('get-join-code').addEventListener('click', getJoinCode);
     $('create-invite').addEventListener('click', createInvite);
-    $('copy-invite').addEventListener('click', copyInvite);
+    $('copy-invite').addEventListener('click', copyInvitation);
+    $('copy-join-code').addEventListener('click', copyInvitation);
     $('download-backup').addEventListener('click', downloadBackup);
     $('import-backup').addEventListener('click', function () { $('backup-file').click(); });
     $('backup-file').addEventListener('change', importBackup);
