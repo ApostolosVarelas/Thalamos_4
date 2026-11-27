@@ -2,6 +2,17 @@
 
 begin;
 
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'thalamos_members' and column_name = 'role'
+  ) then
+    raise exception 'This project already supports household roles. Use supabase-roles.sql.';
+  end if;
+end;
+$$;
+
 create table if not exists public.thalamos_household_codes (
   household_id uuid primary key references public.thalamos_house (household_id) on delete cascade,
   code text not null unique check (code ~ '^[0-9]{6}$'),

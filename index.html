@@ -221,7 +221,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.tabs-inner { max-width: calc(var(--col) - 32px); margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); height: var(--tabbar-h); }
+.tabs-inner { max-width: calc(var(--col) - 32px); margin: 0 auto; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); height: var(--tabbar-h); }
 .tab { position: relative; appearance: none; background: none; border: 0; margin: 0; padding: 0; cursor: pointer; color: var(--muted); font: 600 .74rem/1.2 var(--f-body); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
 .tab svg { width: 22px; height: 22px; }
 .tab[aria-current="page"] { color: var(--ink); }
@@ -341,6 +341,13 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       <ul id="people-list" class="people"></ul>
       <div id="moved"></div>
     </div>
+    <div id="household-accounts" class="card" hidden>
+      <div class="sec-head">
+        <h2>Household accounts</h2>
+      </div>
+      <ul id="accounts-list" class="people"></ul>
+      <p id="accounts-status" class="hint" role="status" hidden></p>
+    </div>
     <div id="invite-actions" class="card" hidden>
       <div class="sec-head">
         <h2>Invite someone</h2>
@@ -423,7 +430,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     view: 'pick',
     mode: 'loading',      // loading | shared | local | signed-out | onboarding | unavailable
     cloud: false, accountId: null,
-    householdId: null, householdName: '', householdBusy: false,
+    householdId: null, householdName: '', householdRole: null, householdBusy: false,
+    accounts: null, accountsError: false, promoting: null, promotionStatus: '',
     inviteToken: '', authView: 'signin', resendConfirmation: false,
     gotPeople: false, gotLogs: false,
     stale: false, readOnly: false, notice: '',
@@ -439,6 +447,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var cloudWatch = null;
   var redeemAfterSignIn = false;
   var armTimer = null;
+  var accountsRequest = 0;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -464,7 +473,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     try { return dt.toLocaleDateString(undefined, o); } catch (e) { return iso; }
   }
   function ready() { return S.mode === 'local' || (S.mode === 'shared' && S.gotPeople && S.gotLogs); }
-  function canWrite() { return ready() && !S.readOnly && (!S.cloud || !S.stale); }
+  function viewOnlyMember() { return S.cloud && S.mode === 'shared' && S.householdRole !== 'owner'; }
+  function canWrite() { return ready() && !S.readOnly && (!S.cloud || (!S.stale && S.householdRole === 'owner')); }
   function personById(id) { for (var i = 0; i < S.people.length; i++) if (S.people[i].id === id) return S.people[i]; return null; }
   function nameOf(id) { var p = personById(id); return p ? p.name : 'Removed housemate'; }
 
@@ -475,18 +485,20 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return VIEWS.indexOf(h) !== -1 ? h : 'pick';
   }
   function showView(v) {
+    if (v === 'pick' && viewOnlyMember()) v = 'log';
     S.view = v;
     VIEWS.forEach(function (n) {
       $('view-' + n).hidden = n !== v || (S.cloud && (!ready() || !!S.inviteToken));
       var t = $('tab-' + n);
       if (n === v) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
     });
+    if (v === 'house' && S.cloud && ready()) refreshAccounts();
   }
   function go(v) {
     if (VIEWS.indexOf(v) === -1) return;
     if (v !== S.view) {
       showView(v);
-      try { if (location.hash !== '#' + v) location.hash = v; } catch (e) { /* hash not available */ }
+      try { if (location.hash !== '#' + S.view) location.hash = S.view; } catch (e) { /* hash not available */ }
     }
     window.scrollTo(0, 0);
   }
@@ -737,7 +749,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   async function downloadBackup() {
-    if (!ready() || (S.cloud && S.stale)) return;
+    if (!ready() || (S.cloud && !canWrite())) return;
     var source = backend;
     var button = $('download-backup');
     button.disabled = true;
@@ -804,11 +816,57 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   function readCloudHouse(client) {
-    var query = client.from('thalamos_house').select('household_id, name, revision, people, logs');
+    var query = client.from('thalamos_house').select('household_id, name, revision, people, logs, thalamos_members(role)');
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       query = query.abortSignal(AbortSignal.timeout(12000));
     }
     return query.maybeSingle();
+  }
+
+  function resetHouseholdAccounts() {
+    S.householdRole = null;
+    S.accounts = null;
+    S.accountsError = false;
+    S.promoting = null;
+    S.promotionStatus = '';
+    accountsRequest++;
+  }
+
+  async function refreshAccounts() {
+    var request = ++accountsRequest;
+    try {
+      var result = await cloudClient.rpc('thalamos_household_accounts');
+      if (request !== accountsRequest) return;
+      if (result.error) throw result.error;
+      S.accounts = result.data;
+      S.accountsError = false;
+    } catch (error) {
+      if (request !== accountsRequest) return;
+      S.accountsError = true;
+    }
+    renderAccounts();
+  }
+
+  async function promoteMember(id) {
+    if (!S.cloud || !canWrite() || S.promoting) return;
+    var source = backend, household = S.householdId;
+    S.promoting = id;
+    S.promotionStatus = '';
+    renderAccounts();
+    try {
+      var result = await cloudClient.rpc('thalamos_promote_member', { p_user_id: id });
+      if (backend !== source || S.householdId !== household) return;
+      if (result.error) throw result.error;
+      S.promotionStatus = 'Household owner added.';
+      await refreshAccounts();
+    } catch (error) {
+      if (backend === source && S.householdId === household) S.promotionStatus = 'Could not make this account an owner. Try again.';
+    } finally {
+      if (backend === source && S.householdId === household) {
+        S.promoting = null;
+        renderAccounts();
+      }
+    }
   }
 
   function watchCloudHouse(client) {
@@ -817,22 +875,29 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     function applyHouse(house) {
       var changedHousehold = S.householdId !== house.household_id;
       if (!active || (!changedHousehold && house.revision < revision)) return;
+      if (changedHousehold) {
+        S.away.clear();
+        clearInviteControls();
+        resetHouseholdAccounts();
+      }
+      var previousRole = S.householdRole;
+      if (Array.isArray(house.thalamos_members)) {
+        S.householdRole = house.thalamos_members[0] && house.thalamos_members[0].role;
+      }
       if (changedHousehold || house.revision !== revision || !ready()) {
-        if (changedHousehold) {
-          S.away.clear();
-          clearInviteControls();
-        }
         S.householdId = house.household_id;
         S.householdName = house.name;
         S.people = normPeople(recordRows(house.people));
         S.logs = normLogs(recordRows(house.logs));
         S.gotPeople = S.gotLogs = true;
         revision = house.revision;
-      } else if (!S.stale) {
+      } else if (!S.stale && previousRole === S.householdRole) {
         return;
       }
       S.mode = 'shared';
       S.stale = false;
+      if (viewOnlyMember() && S.view === 'pick') showView('log');
+      if (S.view === 'house') refreshAccounts();
       render();
     }
 
@@ -849,6 +914,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.mode = 'onboarding';
           S.householdId = null;
           S.householdName = '';
+          resetHouseholdAccounts();
           revision = -1;
           S.people = [];
           S.logs = [];
@@ -1139,6 +1205,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     S.mode = id ? 'loading' : 'signed-out';
     S.householdId = null;
     S.householdName = '';
+    resetHouseholdAccounts();
     S.householdBusy = false;
     if (id) S.authView = 'signin';
     S.people = [];
@@ -1356,6 +1423,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     renderHeader();
     renderPick(d);
     renderPeople(d);
+    renderAccounts();
     renderLog(d);
     if (aid) {
       var el = $(aid);
@@ -1375,8 +1443,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     else if (S.mode === 'shared') {
       if (S.stale) { cls = 'warn'; text = 'Reconnecting…'; }
       else if (!ready()) { text = 'Connecting…'; }
-      else if (S.readOnly) { cls = 'warn'; text = 'View only'; }
-      else { cls = 'ok'; text = 'Shared with the house'; }
+      else if (S.readOnly || viewOnlyMember()) { cls = 'warn'; text = 'View only'; }
+      else { cls = 'ok'; text = 'Owner'; }
     }
     var s = $('sync');
     $('brand-name').textContent = S.householdName || 'Thalamos 4';
@@ -1391,6 +1459,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var joining = !!S.inviteToken;
     var locked = S.cloud && (!ready() || joining);
     $('tabs').hidden = locked;
+    $('tab-pick').hidden = viewOnlyMember();
     $('view-' + S.view).hidden = locked;
     $('sign-in').hidden = S.mode !== 'signed-out';
     var creating = S.authView === 'signup';
@@ -1407,7 +1476,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('join-household-btn').disabled = S.householdBusy;
     $('sign-out').hidden = !S.accountId || joining;
     $('invite-actions').hidden = !S.cloud || !canWrite();
-    $('data-actions').hidden = !ready() || S.stale;
+    $('data-actions').hidden = !ready() || (S.cloud && !canWrite());
     $('import-backup').hidden = !S.cloud || !canWrite();
   }
 
@@ -1492,7 +1561,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
   function personRow(p, d, w) {
     var s = d.st[p.id];
-    if (S.editingPerson === p.id) return personForm(p, s);
+    if (w && S.editingPerson === p.id) return personForm(p, s);
     return '<li class="person"><div class="p-main"><div class="p-name">' + esc(p.name) + '</div><div class="p-meta">' + esc(metaText(s)) + '</div></div>' +
       (w ? '<button class="btn btn-quiet" type="button" id="b-editp-' + esc(p.id) + '" data-act="edit-person" data-id="' + esc(p.id) + '">Edit</button>' : '') +
       '</li>';
@@ -1522,7 +1591,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
   function renderPeople(d) {
     var w = canWrite();
-    $('add-person').hidden = S.readOnly || S.mode === 'unavailable';
+    $('add-person').hidden = !w;
     $('new-name').disabled = !w;
     $('add-person-btn').disabled = !w;
     $('people-count').textContent = ready() ? (d.active.length === 1 ? '1 living here' : d.active.length + ' living here') : '';
@@ -1534,12 +1603,34 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
     list.innerHTML = d.active.length
       ? d.active.map(function (p) { return personRow(p, d, w); }).join('')
-      : '<li class="empty">No housemates yet. Add everyone who lives here. You need at least 3 people to pick.</li>';
+      : '<li class="empty">No housemates yet.</li>';
     var gone = S.people.filter(function (p) { return !p.active; });
     $('moved').innerHTML = gone.length
       ? '<details id="moved-d" class="moved"' + (S.movedOpen ? ' open' : '') + '><summary>Moved out (' + gone.length + ')</summary><ul class="people">' +
         gone.map(function (p) { return movedRow(p, d, w); }).join('') + '</ul></details>'
       : '';
+  }
+
+  function renderAccounts() {
+    var visible = S.cloud && ready();
+    $('household-accounts').hidden = !visible;
+    var list = $('accounts-list'), status = $('accounts-status');
+    status.textContent = visible ? S.promotionStatus : '';
+    status.hidden = !status.textContent;
+    if (!visible) { list.innerHTML = ''; return; }
+    if (!S.accounts) {
+      list.innerHTML = '<li class="empty">' + (S.accountsError ? 'Could not load household accounts.' : 'Loading accounts…') + '</li>';
+      return;
+    }
+    var w = canWrite();
+    list.innerHTML = S.accounts.map(function (account) {
+      var owner = account.role === 'owner';
+      return '<li class="person"><div class="p-main"><div class="p-name">' + esc(account.label) +
+        '</div><div class="p-meta">' + (owner ? 'Owner' : 'Member') + '</div></div>' +
+        (w && !owner ? '<button class="btn" type="button" data-act="promote-member" data-id="' +
+          esc(account.user_id) + '"' + (S.promoting ? ' disabled' : '') + '>' +
+          (S.promoting === account.user_id ? 'Saving…' : 'Make owner') + '</button>' : '') + '</li>';
+    }).join('');
   }
 
   function peopleOptions(sel, blankLabel) {
@@ -1590,7 +1681,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var addBtn = $('add-log-btn');
     addBtn.hidden = !w;
     addBtn.disabled = S.editingLog === 'new' || S.logSaving;
-    var showOdds = ready() && d.active.length > 0;
+    var showOdds = ready() && !viewOnlyMember() && d.active.length > 0;
     $('log-odds-card').hidden = !showOdds;
     $('log-odds-list').innerHTML = showOdds ? d.active.map(function (p) {
       return '<li class="log-odds-row"><span class="h-name">' + esc(p.name) + '</span>' + oddsFor(p, d) + '</li>';
@@ -1601,14 +1692,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       return;
     }
     var h = '';
-    if (S.editingLog === 'new' && S.draft) h += '<ul class="log new-entry">' + logFormHtml() + '</ul>';
+    if (w && S.editingLog === 'new' && S.draft) h += '<ul class="log new-entry">' + logFormHtml() + '</ul>';
     if (!S.logs.length) {
-      if (S.editingLog !== 'new') h += '<p class="empty">Nothing logged yet. Pick cleaners on the Pick screen, or add past cleans so the picker knows who did what before.</p>';
+      if (!w || S.editingLog !== 'new') h += '<p class="empty">Nothing logged yet.' +
+        (w ? ' Pick cleaners on the Pick screen, or add past cleans so the picker knows who did what before.' : '') + '</p>';
       area.innerHTML = h;
       return;
     }
     var shown = S.showAllLogs ? S.logs : S.logs.slice(0, LOG_PAGE);
-    h += '<ol class="log">' + shown.map(function (l) { return S.editingLog === l.id && S.draft ? logFormHtml() : entryRow(l, w); }).join('') + '</ol>';
+    h += '<ol class="log">' + shown.map(function (l) { return w && S.editingLog === l.id && S.draft ? logFormHtml() : entryRow(l, w); }).join('') + '</ol>';
     if (S.logs.length > LOG_PAGE) {
       h += '<button class="btn btn-quiet more" type="button" id="b-more" data-act="toggle-all">' +
         (S.showAllLogs ? 'Show fewer' : 'Show all ' + S.logs.length + ' entries') + '</button>';
@@ -1810,7 +1902,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var t = e.target;
     if (DRAFT_FIELDS[t.id] && S.draft) { S.draft[DRAFT_FIELDS[t.id]] = t.value; return; }
     if (t.hasAttribute && t.hasAttribute('data-pdraft')) { S.personDraft = t.value; return; }
-    if (e.type === 'change' && t.dataset && t.dataset.home) {
+    if (e.type === 'change' && t.dataset && t.dataset.home && canWrite()) {
       if (t.checked) S.away.delete(t.dataset.home); else S.away.add(t.dataset.home);
       render();
     }
@@ -1824,9 +1916,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var id = b.getAttribute('data-id');
       switch (b.getAttribute('data-act')) {
         case 'go': go(id); break;
+        case 'promote-member': promoteMember(id); break;
         case 'edit-person': {
           var p = personById(id);
-          if (!p) return;
+          if (!p || !canWrite()) return;
           S.editingPerson = id; S.personDraft = p.name; setPeopleErr(''); render();
           break;
         }

@@ -3,6 +3,17 @@
 
 begin;
 
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'thalamos_members' and column_name = 'role'
+  ) then
+    raise exception 'This project already supports household roles. Use supabase-roles.sql.';
+  end if;
+end;
+$$;
+
 alter table public.thalamos_house
   add column if not exists household_id uuid not null default gen_random_uuid(),
   add column if not exists name text not null default 'Thalamos 4';
