@@ -386,6 +386,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var VIEWS = ['pick', 'house', 'log'];
   var NO_HOUSE_ACCESS = 'This account does not have access to the shared house.';
   var INVALID_INVITATION = 'This invitation is invalid, expired, or already used.';
+  var CONFIRMED_SIGN_IN = 'Email confirmed. You’re signed in.';
   var INVITE_TOKEN = /^[0-9a-f]{32}$/;
   var SUPABASE_URL = 'https://qfwkwoamkjgwxhmjrkyw.supabase.co';
   var SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_MLq3YZx8arJPdfjwomjbTg_Xqs1ZL61';
@@ -814,7 +815,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
           S.logs = [];
           S.gotPeople = S.gotLogs = false;
           S.stale = false;
-          if (!S.notice && !S.inviteToken) S.notice = NO_HOUSE_ACCESS;
+          if (S.notice === CONFIRMED_SIGN_IN) {
+            S.notice = 'Email confirmed. Open the original invitation and choose “Join with this account”.';
+          } else if (!S.notice && !S.inviteToken) {
+            S.notice = NO_HOUSE_ACCESS;
+          }
           render();
           return;
         }
@@ -930,12 +935,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         return false;
       }
       if (result.data !== 'joined' && result.data !== 'member') throw new Error('Invalid invitation response');
-      S.inviteToken = '';
-      var link = new URL(location.href);
-      link.searchParams.delete('join');
-      link.hash = 'house';
-      history.replaceState(history.state, '', link.href);
-      showView('house');
+      openHouseAfterJoin();
       if (result.data === 'joined') S.notice = 'You’ve joined Thalamos 4.';
       return true;
     } catch (error) {
@@ -949,18 +949,48 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     return invitation ? invitation[1] : '';
   }
 
-  function emailConfirmationNotice() {
+  function openHouseAfterJoin() {
+    S.inviteToken = '';
+    var link = new URL(location.href);
+    link.searchParams.delete('join');
+    link.hash = 'house';
+    history.replaceState(history.state, '', link.href);
+    showView('house');
+  }
+
+  function emailConfirmationReturn() {
     var result = new URLSearchParams(location.hash.slice(1));
-    var confirmed = ['signup', 'email'].includes(result.get('type')) && result.has('access_token') && result.has('refresh_token');
+    var access = result.get('access_token'), refresh = result.get('refresh_token');
+    var confirmed = ['signup', 'email'].includes(result.get('type')) && access && refresh;
     var error = result.get('error_code');
-    if (!confirmed && !error) return '';
-    // Supabase has handled verification. Remove the callback credentials before loading app scripts.
+    if (!confirmed && !error) return null;
+    // Keep the callback credentials out of the address bar before loading the SDK.
     var url = new URL(location.href);
     url.hash = '';
     history.replaceState(history.state, '', url.href);
-    if (confirmed) return 'Email confirmed. Reopen your invitation and choose “Sign in with an existing account”.';
-    if (error === 'otp_expired') return 'This confirmation link expired or was already used. Reopen your invitation to sign in or request a new email.';
-    return 'Could not confirm your email. Reopen your invitation to request a new confirmation email.';
+    if (confirmed) return { tokens: { access_token: access, refresh_token: refresh } };
+    return { message: error === 'otp_expired'
+      ? 'This confirmation link expired or was already used. Reopen your invitation to sign in or request a new email.'
+      : 'Could not confirm your email. Reopen your invitation to request a new confirmation email.' };
+  }
+
+  function confirmationDestination() {
+    return new URL('.', location.href).href;
+  }
+
+  async function finishInviteSignup(id, confirmed) {
+    try {
+      var result = await cloudClient.rpc('thalamos_finish_invite_signup');
+      if (result.error) throw result.error;
+      if (S.accountId !== id) return;
+      if (result.data === 'joined' || confirmed) openHouseAfterJoin();
+      if (result.data === 'joined') S.notice = 'Email confirmed. You’ve joined Thalamos 4.';
+      else if (result.data === 'invalid') S.notice = INVALID_INVITATION;
+    } catch (error) {
+      if (S.accountId === id && confirmed) {
+        S.notice = 'You’re signed in. Reopen the invitation and choose “Join with this account” to finish joining.';
+      }
+    }
   }
 
   async function joinCurrentAccount() {
@@ -977,11 +1007,45 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
   }
 
+  async function setCloudAccount(session, confirmed) {
+    var user = session && session.user;
+    var id = user ? user.id : null;
+    if (S.accountId === id && (id || S.mode === 'signed-out')) return;
+    if (cloudWatch) { cloudWatch.stop(); cloudWatch = null; }
+    backend = null;
+    S.accountId = id;
+    S.mode = id ? 'loading' : 'signed-out';
+    S.people = [];
+    S.logs = [];
+    S.away.clear();
+    S.gotPeople = S.gotLogs = false;
+    S.stale = false;
+    S.notice = confirmed ? CONFIRMED_SIGN_IN : '';
+    S.resendConfirmation = false;
+    S.logSaving = false;
+    $('invite-url').value = '';
+    $('invite-link').hidden = true;
+    setInviteStatus('');
+    S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
+    $('new-name').value = '';
+    setPeopleErr('');
+    render();
+    if (id) {
+      var accept = redeemAfterSignIn;
+      redeemAfterSignIn = false;
+      if (accept) await redeemInvite(id);
+      else if (confirmed || (!S.inviteToken && user.user_metadata && user.user_metadata.thalamos_invite_hash)) {
+        await finishInviteSignup(id, confirmed);
+      }
+      if (S.accountId === id) cloudWatch = watchCloudHouse(cloudClient);
+    }
+  }
+
   async function startCloud() {
     S.cloud = true;
     S.inviteToken = inviteFromHash();
-    var confirmation = emailConfirmationNotice();
-    S.notice = confirmation;
+    var confirmation = emailConfirmationReturn();
+    if (confirmation) S.notice = confirmation.message || 'Finishing sign-in…';
     render();
     try {
       if (new URL(SUPABASE_URL).protocol !== 'https:' || !SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) {
@@ -995,38 +1059,27 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         document.head.appendChild(script);
       });
       cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { detectSessionInUrl: false } });
+      var needsSignIn = !!confirmation;
+      if (confirmation && confirmation.tokens) {
+        try {
+          var result = await cloudClient.auth.setSession(confirmation.tokens);
+          if (result.error || !result.data.session) throw result.error || new Error('Missing confirmation session');
+          await setCloudAccount(result.data.session, true);
+          needsSignIn = false;
+        } catch (error) {
+          S.notice = 'Could not finish signing in. Reopen your invitation and sign in with the account you created.';
+        }
+      }
+      if (needsSignIn) {
+        S.mode = 'signed-out';
+        render();
+      }
       cloudClient.auth.onAuthStateChange(function (event, session) {
-        var id = session ? session.user.id : null;
+        // A failed email link should not send the recipient into a previously saved account.
+        if (needsSignIn && (event !== 'SIGNED_IN' || !$('sign-in-btn').disabled)) return;
+        needsSignIn = false;
         // Leave the auth callback before starting requests that use the session.
-        setTimeout(async function () {
-          if (S.accountId === id && (id || S.mode === 'signed-out')) return;
-          if (cloudWatch) { cloudWatch.stop(); cloudWatch = null; }
-          backend = null;
-          S.accountId = id;
-          S.mode = id ? 'loading' : 'signed-out';
-          S.people = [];
-          S.logs = [];
-          S.away.clear();
-          S.gotPeople = S.gotLogs = false;
-          S.stale = false;
-          S.notice = confirmation;
-          confirmation = '';
-          S.resendConfirmation = false;
-          S.logSaving = false;
-          $('invite-url').value = '';
-          $('invite-link').hidden = true;
-          setInviteStatus('');
-          S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
-          $('new-name').value = '';
-          setPeopleErr('');
-          render();
-          if (id) {
-            var accept = redeemAfterSignIn;
-            redeemAfterSignIn = false;
-            if (accept) await redeemInvite(id);
-            if (S.accountId === id) cloudWatch = watchCloudHouse(cloudClient);
-          }
-        }, 0);
+        setTimeout(function () { setCloudAccount(session, false); }, 0);
       });
     } catch (error) {
       S.mode = 'unavailable';
@@ -1050,7 +1103,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
         // The Auth hook gets a hash for validating signup. Only the link holds the token used to join.
         var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(S.inviteToken));
         var hash = Array.from(new Uint8Array(digest), function (n) { return n.toString(16).padStart(2, '0'); }).join('');
-        credentials.options = { data: { thalamos_invite_hash: hash } };
+        credentials.options = { data: { thalamos_invite_hash: hash }, emailRedirectTo: confirmationDestination() };
         result = await cloudClient.auth.signUp(credentials);
       } else {
         result = await cloudClient.auth.signInWithPassword(credentials);
@@ -1060,7 +1113,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (createAccount && !result.data.session) {
         redeemAfterSignIn = false;
         S.resendConfirmation = true;
-        $('sign-in-error').textContent = 'Check your email to confirm your account, then return to this invitation to sign in.';
+        $('sign-in-error').textContent = 'Open the confirmation link in your email to sign in to Thalamos 4.';
       }
     } catch (error) {
       redeemAfterSignIn = false;
@@ -1089,9 +1142,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     button.disabled = true;
     var message = $('sign-in-error');
     try {
-      var result = await cloudClient.auth.resend({ type: 'signup', email: email.value.trim() });
+      var result = await cloudClient.auth.resend({ type: 'signup', email: email.value.trim(),
+        options: { emailRedirectTo: confirmationDestination() } });
       if (result.error) throw result.error;
-      message.textContent = 'Confirmation email requested. Open the newest email, then return to this invitation to sign in.';
+      message.textContent = 'Confirmation email requested. Open the link in the newest email to sign in.';
     } catch (error) {
       message.textContent = error.code === 'over_email_send_rate_limit'
         ? 'You’ve reached the email limit. Wait a little before trying again.'
