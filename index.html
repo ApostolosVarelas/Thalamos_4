@@ -67,6 +67,8 @@ h2 { font-weight: 700; font-size: 1.12rem; line-height: 1.2; }
 /* Header */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-block: 16px 12px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.house-menu-toggle { display: grid; place-items: center; padding: 0; width: 44px; flex: none; }
+.house-menu-toggle svg { width: 22px; height: 22px; }
 .mark { width: 32px; height: 32px; flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
 .mark i { border-radius: 3px; background: var(--line); }
 .mark i:nth-child(1), .mark i:nth-child(2) { background: var(--bath); }
@@ -113,7 +115,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .check-email h1 { font-size: clamp(2.75rem, 9vw, 5.5rem); }
 .onboarding { display: grid; gap: 14px; }
 #brand-name { overflow-wrap: anywhere; }
-#sign-out { margin-bottom: 10px; }
+.house-menu { position: fixed; inset: 0 auto 0 0; margin: 0; width: min(100%, 24rem); max-width: none; height: 100%; max-height: none; border: 0; border-right: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.house-menu[open] { display: flex; flex-direction: column; gap: 16px; }
+.house-menu::backdrop { background: rgba(12, 22, 24, .65); }
+.house-menu-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 10px; }
+.house-menu-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.house-menu-list .btn { width: 100%; text-align: left; overflow-wrap: anywhere; }
+.house-menu-list .btn[aria-current] { background: var(--bath-soft); color: var(--bath); }
+.house-menu-footer { border-top: 1px solid var(--line); padding-top: 12px; }
+.house-menu-footer .btn { width: 100%; }
 .data-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .invite-link { display: grid; gap: 8px; margin-top: 12px; }
 #join-code-value { font-family: var(--f-mono); font-weight: 700; letter-spacing: .18em; text-align: center; }
@@ -185,6 +195,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 .person.editing { display: block; }
 .person-form { display: flex; flex-direction: column; gap: 10px; }
 .row-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 440px) { #accounts-list .person { grid-template-columns: minmax(0, 1fr); } }
 .moved { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
 .moved summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: .9rem; }
 
@@ -234,11 +245,29 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
 <header id="app-header" class="top">
   <div class="brand">
+    <button id="open-house-menu" class="btn btn-quiet house-menu-toggle" type="button" aria-label="Open households menu" aria-haspopup="dialog" aria-controls="household-menu" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
     <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <h1 id="brand-name">Thalamos 4</h1>
   </div>
   <span id="sync" class="sync" role="status">Connecting…</span>
 </header>
+
+<dialog id="household-menu" class="house-menu" aria-labelledby="household-menu-heading">
+  <div class="sec-head">
+    <h2 id="household-menu-heading">Your households</h2>
+    <button id="close-house-menu" class="btn btn-quiet" type="button" autofocus>Close</button>
+  </div>
+  <div class="house-menu-body">
+    <ul id="house-menu-list" class="house-menu-list"></ul>
+    <button id="menu-create-house" class="btn btn-primary" type="button">Create household</button>
+    <button id="menu-join-house" class="btn" type="button">Join with a code</button>
+  </div>
+  <div class="house-menu-footer">
+    <button id="sign-out" class="btn btn-quiet" type="button">Sign out</button>
+  </div>
+</dialog>
 
 <main id="app-main" class="wrap">
   <div id="notice" class="notice" role="alert" hidden>
@@ -262,8 +291,6 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     <button id="join-current-account" class="btn" type="button">Join with this account</button>
     <button id="invite-create-account" class="btn btn-primary" type="button">Create account</button>
   </section>
-  <button id="sign-out" class="btn btn-quiet" type="button" hidden>Sign out</button>
-
   <section id="household-setup" class="onboarding" aria-label="Household setup" hidden>
     <form id="create-household" class="card sign-in">
       <h2>Create a household</h2>
@@ -277,6 +304,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       </label>
       <button id="join-household-btn" class="btn" type="submit">Join household</button>
     </form>
+    <div><button id="cancel-household-setup" class="btn btn-quiet" type="button" hidden>Cancel</button></div>
   </section>
 
   <section id="view-pick" class="view" aria-label="Pick">
@@ -349,6 +377,9 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       </div>
       <ul id="accounts-list" class="people"></ul>
       <p id="accounts-status" class="hint" role="status" hidden></p>
+      <div id="owner-actions" class="data-actions" hidden>
+        <button id="delete-household" class="btn btn-danger" type="button">Delete household</button>
+      </div>
     </div>
     <div id="invite-actions" class="card" hidden>
       <div class="sec-head">
@@ -425,7 +456,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   var LOG_PAGE = 15;
   var VIEWS = ['pick', 'house', 'log'];
   var INVALID_INVITATION = 'This invitation is invalid, expired, or already used.';
-  var ALREADY_IN_HOUSEHOLD = 'You already belong to a different household.';
+  var ALREADY_IN_HOUSEHOLD = 'You already belong to this household.';
   var CONFIRMED_SIGN_IN = 'Email confirmed. You’re signed in.';
   var EMAIL_ALREADY_EXISTS = 'This email already exists. Choose “Back to sign in”.';
   var INVITE_TOKEN = /^[0-9a-f]{32}$/;
@@ -438,7 +469,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     mode: 'loading',      // loading | shared | local | signed-out | check-email | onboarding | unavailable
     cloud: false, accountId: null,
     householdId: null, householdName: '', householdRole: null, householdBusy: false,
-    accounts: null, accountsError: false, promoting: null, promotionStatus: '',
+    households: null, setupForm: '', newHousehold: null,
+    accounts: null, accountsError: false, managing: false, accountsStatus: '',
     inviteToken: '', authView: 'signin', resendConfirmation: false,
     gotPeople: false, gotLogs: false,
     stale: false, readOnly: false, notice: '',
@@ -480,8 +512,10 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     try { return dt.toLocaleDateString(undefined, o); } catch (e) { return iso; }
   }
   function ready() { return S.mode === 'local' || (S.mode === 'shared' && S.gotPeople && S.gotLogs); }
-  function viewOnlyMember() { return S.cloud && S.mode === 'shared' && S.householdRole !== 'owner'; }
-  function canWrite() { return ready() && !S.readOnly && (!S.cloud || (!S.stale && S.householdRole === 'owner')); }
+  function managesHousehold() { return S.householdRole === 'owner' || S.householdRole === 'admin'; }
+  function viewOnlyMember() { return S.cloud && S.mode === 'shared' && !managesHousehold(); }
+  function canWrite() { return ready() && !S.readOnly && (!S.cloud || (!S.stale && managesHousehold() && !S.setupForm)); }
+  function canManageMembers() { return S.cloud && canWrite() && S.householdRole === 'owner'; }
   function personById(id) { for (var i = 0; i < S.people.length; i++) if (S.people[i].id === id) return S.people[i]; return null; }
   function nameOf(id) { var p = personById(id); return p ? p.name : 'Removed housemate'; }
 
@@ -495,7 +529,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (v === 'pick' && viewOnlyMember()) v = 'log';
     S.view = v;
     VIEWS.forEach(function (n) {
-      $('view-' + n).hidden = n !== v || (S.cloud && (!ready() || !!S.inviteToken));
+      $('view-' + n).hidden = n !== v || (S.cloud && (!ready() || !!S.inviteToken || !!S.setupForm));
       var t = $('tab-' + n);
       if (n === v) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
     });
@@ -822,27 +856,69 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     render();
   }
 
-  function readCloudHouse(client) {
-    var query = client.from('thalamos_house').select('household_id, name, revision, people, logs, thalamos_members(role)');
+  function timedQuery(query) {
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-      query = query.abortSignal(AbortSignal.timeout(12000));
+      return query.abortSignal(AbortSignal.timeout(12000));
     }
-    return query.maybeSingle();
+    return query;
   }
 
-  function resetHouseholdAccounts() {
+  function readCloudHouse(client, id) {
+    return timedQuery(client.from('thalamos_house')
+      .select('household_id, name, revision, people, logs, thalamos_members(role)')
+      .eq('household_id', id)).maybeSingle();
+  }
+
+  async function readCloudHouses(client) {
+    var houses = [], pageSize = 500;
+    for (var offset = 0; ; offset += pageSize) {
+      var result = await timedQuery(client.from('thalamos_house')
+        .select('household_id, name, thalamos_members(role)')
+        .order('name').order('household_id').range(offset, offset + pageSize - 1));
+      if (result.error) throw result.error;
+      houses.push.apply(houses, result.data);
+      if (result.data.length < pageSize) return houses;
+    }
+  }
+
+  function roleOf(house) {
+    var membership = house.thalamos_members && house.thalamos_members[0];
+    return membership ? membership.role : null;
+  }
+
+  function roleLabel(role) {
+    if (role === 'owner') return 'Owner';
+    if (role === 'admin') return 'Admin';
+    return 'Member';
+  }
+
+  function resetActiveHousehold() {
+    backend = null;
+    S.householdId = null;
+    S.householdName = '';
     S.householdRole = null;
     S.accounts = null;
     S.accountsError = false;
-    S.promoting = null;
-    S.promotionStatus = '';
+    S.managing = false;
+    S.accountsStatus = '';
     accountsRequest++;
+    S.people = [];
+    S.logs = [];
+    S.away.clear();
+    S.gotPeople = S.gotLogs = false;
+    S.stale = false;
+    S.rolling = S.logSaving = S.showAllLogs = S.movedOpen = false;
+    S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
+    clearTimeout(armTimer);
+    clearInviteControls();
+    $('new-name').value = '';
+    setPeopleErr('');
   }
 
   async function refreshAccounts() {
     var request = ++accountsRequest;
     try {
-      var result = await cloudClient.rpc('thalamos_household_accounts');
+      var result = await cloudClient.rpc('thalamos_household_accounts', { p_household_id: S.householdId });
       if (request !== accountsRequest) return;
       if (result.error) throw result.error;
       S.accounts = result.data;
@@ -854,53 +930,58 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     renderAccounts();
   }
 
-  async function promoteMember(id) {
-    if (!S.cloud || !canWrite() || S.promoting) return;
+  async function manageHousehold(action, id) {
+    if (!canManageMembers() || S.managing) return;
     var source = backend, household = S.householdId;
-    S.promoting = id;
-    S.promotionStatus = '';
+    var args = { p_household_id: household };
+    var deleting = action === 'delete';
+    if (deleting) {
+      if (!window.confirm('Permanently delete “' + S.householdName + '” and its logs?')) return;
+    } else {
+      var account = S.accounts && S.accounts.find(function (entry) { return entry.user_id === id; });
+      if (!account || account.role === 'owner' || (action === 'admin' && account.role !== 'member')) return;
+      if (action === 'remove' && !window.confirm('Remove ' + account.label + ' from this household?')) return;
+      args.p_user_id = id;
+    }
+    var rpc = { admin: 'thalamos_make_admin', remove: 'thalamos_remove_member', delete: 'thalamos_delete_household' }[action];
+    S.managing = true;
+    S.accountsStatus = '';
     renderAccounts();
     try {
-      var result = await cloudClient.rpc('thalamos_promote_member', { p_user_id: id });
-      if (backend !== source || S.householdId !== household) return;
+      var result = await cloudClient.rpc(rpc, args);
+      if (backend !== source) return;
       if (result.error) throw result.error;
-      S.promotionStatus = 'Household owner added.';
-      await refreshAccounts();
+      if (deleting) {
+        S.notice = 'Household deleted.';
+        cloudWatch.forget(household);
+        await cloudWatch.refresh();
+      } else {
+        S.accountsStatus = action === 'admin' ? 'Admin added.' : 'Account removed from this household.';
+        await refreshAccounts();
+      }
     } catch (error) {
-      if (backend === source && S.householdId === household) S.promotionStatus = 'Could not make this account an owner. Try again.';
+      if (backend === source) S.accountsStatus = 'Could not save that change. Try again.';
     } finally {
-      if (backend === source && S.householdId === household) {
-        S.promoting = null;
+      if (backend === source) {
+        S.managing = false;
         renderAccounts();
       }
     }
   }
 
-  function watchCloudHouse(client) {
+  function watchCloudHouse(client, householdId, missing) {
     var active = true, revision = -1, readNumber = 0;
 
     function applyHouse(house) {
-      var changedHousehold = S.householdId !== house.household_id;
-      if (!active || (!changedHousehold && house.revision < revision)) return;
-      if (changedHousehold) {
-        S.away.clear();
-        clearInviteControls();
-        resetHouseholdAccounts();
-      }
-      var previousRole = S.householdRole;
-      if (Array.isArray(house.thalamos_members)) {
-        S.householdRole = house.thalamos_members[0] && house.thalamos_members[0].role;
-      }
-      if (changedHousehold || house.revision !== revision || !ready()) {
-        S.householdId = house.household_id;
-        S.householdName = house.name;
-        S.people = normPeople(recordRows(house.people));
-        S.logs = normLogs(recordRows(house.logs));
-        S.gotPeople = S.gotLogs = true;
-        revision = house.revision;
-      } else if (!S.stale && previousRole === S.householdRole) {
-        return;
-      }
+      if (!active || house.household_id !== householdId || house.revision < revision) return;
+      var role = house.thalamos_members ? roleOf(house) : S.householdRole;
+      if (house.revision === revision && role === S.householdRole && !S.stale && ready()) return;
+      S.householdName = house.name;
+      S.householdRole = role;
+      S.people = normPeople(recordRows(house.people));
+      S.logs = normLogs(recordRows(house.logs));
+      S.gotPeople = S.gotLogs = true;
+      revision = house.revision;
       S.mode = 'shared';
       S.stale = false;
       if (viewOnlyMember() && S.view === 'pick') showView('log');
@@ -913,24 +994,11 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var request = ++readNumber;
       var startedAt = revision;
       try {
-        var result = await readCloudHouse(client);
+        var result = await readCloudHouse(client, householdId);
         if (!active || request !== readNumber) return;
         if (result.error) throw result.error;
-        if (!result.data) {
-          if (S.householdId) clearInviteControls();
-          S.mode = 'onboarding';
-          S.householdId = null;
-          S.householdName = '';
-          resetHouseholdAccounts();
-          revision = -1;
-          S.people = [];
-          S.logs = [];
-          S.gotPeople = S.gotLogs = false;
-          S.stale = false;
-          render();
-          return;
-        }
-        applyHouse(result.data);
+        if (result.data) applyHouse(result.data);
+        else missing(householdId);
       } catch (error) {
         if (!active || request !== readNumber || startedAt !== revision) return;
         S.stale = true;
@@ -939,7 +1007,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     }
 
     async function save(rpc, args) {
-      var result = await client.rpc(rpc, args);
+      var result = await client.rpc(rpc, Object.assign({ p_household_id: householdId }, args));
       if (result.error) throw result.error;
       applyHouse(result.data);
     }
@@ -955,31 +1023,89 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       putLog: function (id, record) { return change('logs', id, record); },
       delLog: function (id) { return change('logs', id, null); },
       backup: async function () {
-        var result = await readCloudHouse(client);
+        var result = await readCloudHouse(client, householdId);
         if (result.error || !result.data) throw result.error || new Error('House unavailable');
         return result.data;
       },
       restore: function (data) { return save('thalamos_import', { p_people: data.people, p_logs: data.logs }); }
     };
+    return { refresh: refresh, stop: function () { active = false; } };
+  }
 
-    var channel = client.channel('thalamos-house-' + crypto.randomUUID()).on('postgres_changes', {
+  function watchCloudHouses(client) {
+    var active = true, current = null, requestNumber = 0, preferredId = null;
+    var memoryKey = 'thalamos4-household:' + S.accountId;
+    var savedId = null;
+    try { savedId = localStorage.getItem(memoryKey); } catch (e) { /* storage unavailable */ }
+
+    function select(house) {
+      var id = house ? house.household_id : null;
+      if (current && id === S.householdId) { render(); return current.refresh(); }
+      if (current) current.stop();
+      current = null;
+      resetActiveHousehold();
+      S.mode = house ? 'loading' : 'onboarding';
+      if (house) {
+        S.householdId = id;
+        S.householdName = house.name;
+        S.householdRole = roleOf(house);
+        savedId = id;
+        try { localStorage.setItem(memoryKey, id); } catch (e) { /* storage unavailable */ }
+        current = watchCloudHouse(client, id, forget);
+      }
+      render();
+      if (current) return current.refresh();
+    }
+
+    function forget(id) {
+      requestNumber++;
+      S.households = S.households.filter(function (house) { return house.household_id !== id; });
+      return select(S.households[0]);
+    }
+
+    async function refresh(id) {
+      if (!active) return;
+      if (id) preferredId = id;
+      var request = ++requestNumber;
+      try {
+        var houses = await readCloudHouses(client);
+        if (!active || request !== requestNumber) return;
+        S.households = houses;
+        var next = [preferredId, S.householdId, savedId].map(function (candidate) {
+          return houses.find(function (house) { return house.household_id === candidate; });
+        }).find(Boolean) || houses[0];
+        preferredId = null;
+        return select(next);
+      } catch (error) {
+        if (!active || request !== requestNumber) return;
+        S.stale = true;
+        render();
+      }
+    }
+
+    function sync() { if (!document.hidden) refresh(); }
+    var channel = client.channel('thalamos-houses-' + crypto.randomUUID()).on('postgres_changes', {
       event: 'UPDATE', schema: 'public', table: 'thalamos_house'
-    }, refresh).subscribe(function (status) {
-      if (status === 'SUBSCRIBED') refresh();
+    }, sync).subscribe(function (status) {
+      if (status === 'SUBSCRIBED') sync();
     });
-    var poll = setInterval(function () { if (!document.hidden) refresh(); }, 15000);
-    function onVisible() { if (!document.hidden) refresh(); }
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('online', refresh);
-    refresh();
+    var poll = setInterval(sync, 15000);
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('online', sync);
 
     return {
       refresh: refresh,
+      forget: forget,
+      select: function (id) {
+        var house = (S.households || []).find(function (entry) { return entry.household_id === id; });
+        if (house) { preferredId = null; return select(house); }
+      },
       stop: function () {
         active = false;
+        if (current) current.stop();
         clearInterval(poll);
-        document.removeEventListener('visibilitychange', onVisible);
-        window.removeEventListener('online', refresh);
+        document.removeEventListener('visibilitychange', sync);
+        window.removeEventListener('online', sync);
         client.removeChannel(channel);
       }
     };
@@ -1008,7 +1134,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     button.disabled = true;
     setInviteStatus('Getting join code…');
     try {
-      var result = await cloudClient.rpc('thalamos_get_join_code');
+      var result = await cloudClient.rpc('thalamos_get_join_code', { p_household_id: household });
       if (result.error) throw result.error;
       if (backend !== source || S.householdId !== household) return;
       var expires = new Date(result.data && result.data.expires_at);
@@ -1034,7 +1160,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     button.disabled = true;
     setInviteStatus('Creating link…');
     try {
-      var result = await cloudClient.rpc('thalamos_create_invite');
+      var result = await cloudClient.rpc('thalamos_create_invite', { p_household_id: S.householdId });
       if (result.error) throw result.error;
       if (backend !== source) return;
       if (typeof result.data !== 'string' || !INVITE_TOKEN.test(result.data)) throw new Error('Invalid invitation response');
@@ -1074,27 +1200,23 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   async function redeemInvite(id) {
     var token = S.inviteToken;
-    if (!token) return false;
+    if (!token) return null;
     try {
       var result = await cloudClient.rpc('thalamos_redeem_invite', { p_token: token });
       if (result.error) throw result.error;
-      if (S.accountId !== id || S.inviteToken !== token) return false;
-      if (result.data === 'invalid') {
+      if (S.accountId !== id || S.inviteToken !== token) return null;
+      var status = result.data.status;
+      if (status === 'invalid') {
         S.notice = INVALID_INVITATION;
-        return false;
+        return null;
       }
-      if (result.data === 'already_member') {
-        openHouseAfterJoin();
-        S.notice = ALREADY_IN_HOUSEHOLD;
-        return false;
-      }
-      if (result.data !== 'joined' && result.data !== 'member') throw new Error('Invalid invitation response');
+      if (!['joined', 'already_member'].includes(status)) throw new Error('Invalid invitation response');
       openHouseAfterJoin();
-      if (result.data === 'joined') S.notice = 'You’ve joined the household.';
-      return true;
+      S.notice = status === 'joined' ? 'You’ve joined the household.' : ALREADY_IN_HOUSEHOLD;
+      return result.data.household_id;
     } catch (error) {
       if (S.accountId === id && S.inviteToken === token) S.notice = 'Could not accept this invitation. Try again.';
-      return false;
+      return null;
     }
   }
 
@@ -1104,7 +1226,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   async function setUpHousehold(create) {
-    if (S.mode !== 'onboarding' || !S.accountId || S.householdBusy || S.inviteToken) return;
+    if (!cloudWatch || S.householdBusy || S.inviteToken || (S.mode !== 'onboarding' && S.setupForm !== (create ? 'create' : 'join'))) return;
     var id = S.accountId;
     var input = $(create ? 'household-name' : 'household-code');
     var value = input.value.trim();
@@ -1118,24 +1240,33 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     S.notice = '';
     render();
     try {
-      var result = create
-        ? await cloudClient.rpc('thalamos_create_household', { p_name: value })
-        : await cloudClient.rpc('thalamos_join_by_code', { p_code: value });
+      var result, household;
+      if (create) {
+        if (!S.newHousehold || S.newHousehold.name !== value) S.newHousehold = { name: value, id: crypto.randomUUID() };
+        result = await cloudClient.rpc('thalamos_create_household', { p_household_id: S.newHousehold.id, p_name: value });
+      } else {
+        result = await cloudClient.rpc('thalamos_join_by_code', { p_code: value });
+      }
       if (result.error) throw result.error;
       if (S.accountId !== id) return;
-      if (!create) {
-        if (result.data === 'invalid' || result.data === 'rate_limited') {
-          S.notice = result.data === 'invalid'
+      if (create) {
+        household = result.data;
+        S.newHousehold = null;
+      } else {
+        var status = result.data.status;
+        if (status === 'invalid' || status === 'rate_limited') {
+          S.notice = status === 'invalid'
             ? 'That code is invalid or expired. Ask a housemate for the current code.'
             : 'Too many attempts. Try again in 15 minutes.';
           return;
         }
-        if (result.data !== 'joined' && result.data !== 'already_member') throw new Error('Invalid join response');
-        S.notice = result.data === 'joined' ? 'You’ve joined the household.' : 'You already belong to a household.';
+        if (!['joined', 'already_member'].includes(status)) throw new Error('Invalid join response');
+        S.notice = status === 'joined' ? 'You’ve joined the household.' : ALREADY_IN_HOUSEHOLD;
+        household = result.data.household_id;
       }
       openHouseAfterJoin();
       input.value = '';
-      if (cloudWatch) await cloudWatch.refresh();
+      await cloudWatch.refresh(household);
     } catch (error) {
       if (S.accountId === id) S.notice = create ? 'Could not create your household. Try again.' : 'Could not join the household. Try again.';
     } finally {
@@ -1145,6 +1276,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   function openHouseAfterJoin() {
     S.inviteToken = '';
+    S.setupForm = '';
     var link = new URL(location.href);
     link.searchParams.delete('join');
     link.hash = 'house';
@@ -1177,10 +1309,12 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var result = await cloudClient.rpc('thalamos_finish_invite_signup');
       if (result.error) throw result.error;
       if (S.accountId !== id) return;
-      if (result.data === 'joined' || confirmed) openHouseAfterJoin();
-      if (result.data === 'joined') S.notice = 'Email confirmed. You’ve joined the household.';
-      else if (result.data === 'invalid') S.notice = INVALID_INVITATION;
-      else if (result.data === 'already_member') S.notice = ALREADY_IN_HOUSEHOLD;
+      var status = result.data.status;
+      if (status === 'joined' || confirmed) openHouseAfterJoin();
+      if (status === 'joined') S.notice = 'Email confirmed. You’ve joined the household.';
+      else if (status === 'invalid') S.notice = INVALID_INVITATION;
+      else if (status === 'already_member') S.notice = ALREADY_IN_HOUSEHOLD;
+      return result.data.household_id;
     } catch (error) {
       if (S.accountId === id && confirmed) {
         S.notice = 'You’re signed in. If you received an invitation, use it to finish joining.';
@@ -1195,7 +1329,8 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     join.disabled = create.disabled = true;
     S.notice = '';
     try {
-      if (await redeemInvite(id) && S.accountId === id && cloudWatch) await cloudWatch.refresh();
+      var household = await redeemInvite(id);
+      if (household && S.accountId === id && cloudWatch) await cloudWatch.refresh(household);
     } finally {
       join.disabled = create.disabled = false;
       render();
@@ -1207,37 +1342,32 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var id = user ? user.id : null;
     if (S.accountId === id && (id || S.mode === 'signed-out' || S.mode === 'check-email')) return;
     if (cloudWatch) { cloudWatch.stop(); cloudWatch = null; }
-    backend = null;
+    $('household-menu').close();
+    resetActiveHousehold();
     S.accountId = id;
     S.mode = id ? 'loading' : 'signed-out';
-    S.householdId = null;
-    S.householdName = '';
-    resetHouseholdAccounts();
+    S.households = null;
+    S.setupForm = '';
+    S.newHousehold = null;
     S.householdBusy = false;
     if (id) S.authView = 'signin';
-    S.people = [];
-    S.logs = [];
-    S.away.clear();
-    S.gotPeople = S.gotLogs = false;
-    S.stale = false;
     S.notice = confirmed ? CONFIRMED_SIGN_IN : '';
     S.resendConfirmation = false;
-    S.logSaving = false;
-    clearInviteControls();
-    S.editingPerson = S.editingLog = S.draft = S.lastPick = S.armed = null;
-    $('new-name').value = '';
     $('household-name').value = '';
     $('household-code').value = '';
-    setPeopleErr('');
     render();
     if (id) {
       var accept = redeemAfterSignIn;
       redeemAfterSignIn = false;
-      if (accept) await redeemInvite(id);
+      var household;
+      if (accept) household = await redeemInvite(id);
       else if (confirmed || (!S.inviteToken && user.user_metadata && user.user_metadata.thalamos_invite_hash)) {
-        await finishInviteSignup(id, confirmed);
+        household = await finishInviteSignup(id, confirmed);
       }
-      if (S.accountId === id) cloudWatch = watchCloudHouse(cloudClient);
+      if (S.accountId === id) {
+        cloudWatch = watchCloudHouses(cloudClient);
+        await cloudWatch.refresh(household);
+      }
     }
   }
 
@@ -1389,6 +1519,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var previousView = S.authView;
     S.authView = button.id === 'invite-create-account' ? 'signup' : 'signin';
     button.disabled = true;
+    $('household-menu').close();
     try {
       var result = await cloudClient.auth.signOut({ scope: 'local' });
       if (result.error) throw result.error;
@@ -1402,6 +1533,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
   }
 
   function write(fn) {
+    if (!canWrite()) return Promise.resolve(false);
     var source = backend;
     return fn().then(function () { return backend === source; }, function (e) {
       if (backend !== source) return false;
@@ -1443,6 +1575,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     if (S.editingPerson && !personById(S.editingPerson)) S.editingPerson = null;
     var d = derive();
     renderHeader();
+    renderHouseMenu();
     renderPick(d);
     renderPeople(d);
     renderAccounts();
@@ -1474,7 +1607,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       if (S.stale) { cls = 'warn'; text = 'Reconnecting…'; }
       else if (!ready()) { text = 'Connecting…'; }
       else if (S.readOnly || viewOnlyMember()) { cls = 'warn'; text = 'View only'; }
-      else { cls = 'ok'; text = 'Owner'; }
+      else { cls = 'ok'; text = roleLabel(S.householdRole); }
     }
     var s = $('sync');
     $('brand-name').textContent = S.householdName || 'Thalamos 4';
@@ -1487,7 +1620,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('notice-text').textContent = msg;
     $('notice-close').hidden = S.cloud && !S.notice;
     var joining = !!S.inviteToken;
-    var locked = S.cloud && (!ready() || joining);
+    var locked = S.cloud && (!ready() || joining || !!S.setupForm);
     $('tabs').hidden = locked;
     $('tab-pick').hidden = viewOnlyMember();
     $('view-' + S.view).hidden = locked;
@@ -1501,13 +1634,43 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('join-hint').hidden = !creating && !joining;
     $('resend-confirmation').hidden = !S.resendConfirmation;
     $('invite-account').hidden = !joining || !S.accountId;
-    $('household-setup').hidden = S.mode !== 'onboarding' || joining;
+    $('open-house-menu').hidden = !S.accountId || joining;
+    $('household-setup').hidden = joining || (S.mode !== 'onboarding' && !S.setupForm);
+    $('create-household').hidden = S.setupForm === 'join';
+    $('join-household').hidden = S.setupForm === 'create';
+    $('cancel-household-setup').hidden = !S.setupForm;
+    $('cancel-household-setup').disabled = S.householdBusy;
     $('create-household-btn').disabled = S.householdBusy;
     $('join-household-btn').disabled = S.householdBusy;
-    $('sign-out').hidden = !S.accountId || joining;
     $('invite-actions').hidden = !S.cloud || !canWrite();
     $('data-actions').hidden = !ready() || (S.cloud && !canWrite());
     $('import-backup').hidden = !S.cloud || !canWrite();
+  }
+
+  function renderHouseMenu() {
+    var list = $('house-menu-list');
+    $('menu-create-house').disabled = $('menu-join-house').disabled = !cloudWatch || S.householdBusy;
+    if (!S.households || !S.households.length) {
+      var message = S.households ? 'No households yet.' : S.stale ? 'Could not load households.' : 'Loading households…';
+      list.innerHTML = '<li class="hint">' + message + '</li>';
+      return;
+    }
+    list.innerHTML = S.households.map(function (house) {
+      var id = esc(house.household_id);
+      return '<li><button id="menu-house-' + id + '" class="btn" type="button" data-act="select-household" data-id="' + id + '"' +
+        (house.household_id === S.householdId ? ' aria-current="true"' : '') +
+        (S.householdBusy ? ' disabled' : '') + '>' + esc(house.name) +
+        '<br><span class="p-meta">' + roleLabel(roleOf(house)) + '</span></button></li>';
+    }).join('');
+  }
+
+  function openHouseholdSetup(form) {
+    if (!cloudWatch || S.householdBusy) return;
+    $('household-menu').close();
+    S.setupForm = form;
+    S.notice = '';
+    render();
+    if (form) $('household-' + (form === 'create' ? 'name' : 'code')).focus();
   }
 
   function nameSpans(ids, emptyText) {
@@ -1645,21 +1808,28 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var visible = S.cloud && ready();
     $('household-accounts').hidden = !visible;
     var list = $('accounts-list'), status = $('accounts-status');
-    status.textContent = visible ? S.promotionStatus : '';
+    status.textContent = visible ? S.accountsStatus : '';
     status.hidden = !status.textContent;
+    var owner = canManageMembers();
+    $('owner-actions').hidden = !owner;
+    $('delete-household').disabled = S.managing;
     if (!visible) { list.innerHTML = ''; return; }
     if (!S.accounts) {
       list.innerHTML = '<li class="empty">' + (S.accountsError ? 'Could not load household accounts.' : 'Loading accounts…') + '</li>';
       return;
     }
-    var w = canWrite();
     list.innerHTML = S.accounts.map(function (account) {
-      var owner = account.role === 'owner';
+      var id = esc(account.user_id), disabled = S.managing ? ' disabled' : '';
+      var actions = '';
+      if (owner && account.role !== 'owner') {
+        if (account.role === 'member') {
+          actions += '<button class="btn" type="button" data-act="make-admin" data-id="' + id + '"' + disabled + '>Make admin</button>';
+        }
+        actions += '<button class="btn btn-danger" type="button" data-act="remove-member" data-id="' + id + '"' + disabled + '>Remove</button>';
+      }
       return '<li class="person"><div class="p-main"><div class="p-name">' + esc(account.label) +
-        '</div><div class="p-meta">' + (owner ? 'Owner' : 'Member') + '</div></div>' +
-        (w && !owner ? '<button class="btn" type="button" data-act="promote-member" data-id="' +
-          esc(account.user_id) + '"' + (S.promoting ? ' disabled' : '') + '>' +
-          (S.promoting === account.user_id ? 'Saving…' : 'Make owner') + '</button>' : '') + '</li>';
+        '</div><div class="p-meta">' + roleLabel(account.role) + '</div></div>' +
+        (actions ? '<div class="row-acts">' + actions + '</div>' : '') + '</li>';
     }).join('');
   }
 
@@ -1740,6 +1910,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
 
   // ---------- actions ----------
   function roll(avail, choice) {
+    var source = backend;
     return new Promise(function (resolve) {
       if (reduceMotion()) { resolve(); return; }
       $('bath-names').innerHTML = '<span class="picked-name rolling" id="rs0"></span><span class="picked-name rolling" id="rs1"></span>';
@@ -1748,6 +1919,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var stops = [650, 850, 1100];
       var t0 = performance.now();
       function tick() {
+        if (backend !== source) { clearInterval(iv); resolve(); return; }
         var t = performance.now() - t0, done = true;
         for (var i = 0; i < 3; i++) {
           var el = $('rs' + i);
@@ -1771,6 +1943,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     var d = derive();
     if (!d.od) return;
     var choice = sampleAssignment(d.avail, d.od);
+    var source = backend;
     var id = backend.newId();
     var body = {
       date: todayISO(), bathroom: [choice.b1.id, choice.b2.id], room: choice.r.id,
@@ -1780,6 +1953,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' });
     render();
     Promise.all([write(function () { return backend.putLog(id, body); }), roll(d.avail, choice)]).then(function (res) {
+      if (backend !== source) return;
       S.rolling = false;
       if (res[0]) S.lastPick = id;
       render();
@@ -1799,12 +1973,13 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       return;
     }
     var avg = houseAverage(computeStats());
+    var source = backend;
     var id = backend.newId();
     input.value = '';
     setPeopleErr('');
     write(function () {
       return backend.putPerson(id, { name: name, active: true, baseBath: round1(avg.bath), baseRoom: round1(avg.room), createdAt: Date.now() });
-    }).then(function (ok) { if (!ok && !input.value) input.value = name; });
+    }).then(function (ok) { if (backend === source && !ok && !input.value) input.value = name; });
   }
 
   function personBody(p, patch) {
@@ -1946,7 +2121,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
       var id = b.getAttribute('data-id');
       switch (b.getAttribute('data-act')) {
         case 'go': go(id); break;
-        case 'promote-member': promoteMember(id); break;
+        case 'select-household':
+          if (!cloudWatch || S.householdBusy) break;
+          S.notice = '';
+          S.setupForm = '';
+          $('household-menu').close();
+          cloudWatch.select(id);
+          break;
+        case 'make-admin': manageHousehold('admin', id); break;
+        case 'remove-member': manageHousehold('remove', id); break;
         case 'edit-person': {
           var p = personById(id);
           if (!p || !canWrite()) return;
@@ -1981,7 +2164,7 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     document.addEventListener('input', onField);
     document.addEventListener('change', onField);
     document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || $('household-menu').open) return;
       if (S.editingLog) cancelLog();
       else if (S.editingPerson) { S.editingPerson = null; render(); }
     });
@@ -2010,6 +2193,15 @@ input[type="date"] { -webkit-appearance: none; appearance: none; }
     $('add-log-btn').addEventListener('click', function () { startLogEdit('new'); });
     $('notice-close').addEventListener('click', function () { S.notice = ''; if (!S.cloud) S.stale = false; render(); });
     $('new-name').addEventListener('input', function () { setPeopleErr(''); });
+    $('open-house-menu').addEventListener('click', function () {
+      $('household-menu').showModal();
+      if (cloudWatch) cloudWatch.refresh();
+    });
+    $('close-house-menu').addEventListener('click', function () { $('household-menu').close(); });
+    $('menu-create-house').addEventListener('click', function () { openHouseholdSetup('create'); });
+    $('menu-join-house').addEventListener('click', function () { openHouseholdSetup('join'); });
+    $('cancel-household-setup').addEventListener('click', function () { openHouseholdSetup(''); });
+    $('delete-household').addEventListener('click', function () { manageHousehold('delete'); });
     $('sign-out').addEventListener('click', signOut);
     $('auth-mode-btn').addEventListener('click', switchAuthView);
     $('resend-confirmation').addEventListener('click', resendConfirmationEmail);

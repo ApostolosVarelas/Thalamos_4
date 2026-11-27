@@ -4,6 +4,17 @@
 
 begin;
 
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'thalamos_house' and column_name = 'created_by'
+  ) then
+    raise exception 'This project already supports multiple memberships. Use supabase-multiple-households.sql.';
+  end if;
+end;
+$$;
+
 alter table public.thalamos_members
   add column if not exists role text not null default 'member'
   check (role in ('owner', 'member'));
